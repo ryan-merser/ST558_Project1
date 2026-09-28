@@ -1,0 +1,30 @@
+[
+  {
+    "objectID": "ST558_Project1.html",
+    "href": "ST558_Project1.html",
+    "title": "ST558 Project 1",
+    "section": "",
+    "text": "Our goal for this project is to write functions that will manipulate and process data sets from a census API. We’ll create generic functions to automatically summarize and plot certain returned data.\n\n\nWe are going to query the Public Use Microdata Sample (PUMS) Census API. Information about this is available here: Information about PUMS API"
+  },
+  {
+    "objectID": "ST558_Project1.html#data",
+    "href": "ST558_Project1.html#data",
+    "title": "ST558 Project 1",
+    "section": "",
+    "text": "We are going to query the Public Use Microdata Sample (PUMS) Census API. Information about this is available here: Information about PUMS API"
+  },
+  {
+    "objectID": "ST558_Project1.html#parsing-variable-values",
+    "href": "ST558_Project1.html#parsing-variable-values",
+    "title": "ST558 Project 1",
+    "section": "Parsing Variable Values",
+    "text": "Parsing Variable Values\nFirst, we’ll start by downloading and parsing the JSON files with variable descriptions for the years 2021-2024.\n\nlibrary(httr)\nlibrary(jsonlite)\nlibrary(tibble)\n\nWe only want to parse certain variables, so we’ll specify them below.\nWe want to write a function to GET() the URL, parse the JSON, and pull out a list of variables with their values. We’ll obtain one list for each year\n\nvars &lt;- c(\"AGEP\", \"GASP\", \"GRPIP\", \"JWAP\", \"JWDP\", \"JWMNP\", \"PWGTP\",\n               \"FER\", \"HHL\", \"SCH\", \"SCHL\", \"SEX\", \"REGION\", \"DIVISION\")\n# ST: 2021-2022\n# STATE: 2023-2024\n\n#API Key - Required, should find some way to encrypt this in future\nkey &lt;- \"4270e8325c6e236168e18ec3682a2a6cc27469c7\"\n\n# Function\nget_var_dict &lt;- function(year) {\n  if (!(year  %in% 2021:2024)) {\n    stop(\"Year must be between 2021-2024\")\n  }\n  \n  url &lt;- paste0(\"https://api.census.gov/data/\", year, \"/acs/acs1/pums/variables.json?key=\", key)\n  response &lt;- GET(url)\n  stop_for_status(response)\n  parsed &lt;- fromJSON(content(response, as = \"text\", encoding = \"UTF-8\"),\n                             simplifyVector = FALSE)\n  \n  state_var &lt;- if (year &lt;= 2022) \"ST\" else \"STATE\"\n  \n  #For each variable, keep a named character vector and sort by numeric order\n  lapply(parsed$variables[c(vars, state_var)], function(vector) {\n    items &lt;- unlist(vector$values$item)\n    code_num &lt;- suppressWarnings(as.numeric(names(items)))\n    items[order(is.na(code_num), code_num)]\n  })\n}\n\nvar_dicts &lt;- lapply(2021:2024, get_var_dict)\nnames(var_dicts) &lt;- 2021:2024\n\nWe can then save these lists as an .rds file in the repo under a data folder. Using dir.create() creates the folder from scratch, and rerunning it without warnings does nothing, allowing for more replicability.\n\ndir.create(\"data\", showWarnings = FALSE)\nsaveRDS(var_dicts, \"data/var_dicts.rds\")"
+  },
+  {
+    "objectID": "ST558_Project1.html#parsing-api-data",
+    "href": "ST558_Project1.html#parsing-api-data",
+    "title": "ST558 Project 1",
+    "section": "Parsing API Data",
+    "text": "Parsing API Data\n\n# Testing via a hard-coded query\nresponse &lt;- GET(\n  \"https://api.census.gov/data/2024/acs/acs1/pums\",\n  query = list(\n    get   = \"SEX,PWGTP,AGEP\",\n    `for` = \"state:37\",\n    key   = key\n  )\n)\n\nparsed &lt;- fromJSON(content(response, as = \"text\", encoding = \"UTF-8\"))\nhead(parsed)\n\n     [,1]  [,2]    [,3]   [,4]   \n[1,] \"SEX\" \"PWGTP\" \"AGEP\" \"state\"\n[2,] \"1\"   \"60\"    \"23\"   \"37\"   \n[3,] \"1\"   \"49\"    \"21\"   \"37\"   \n[4,] \"1\"   \"24\"    \"20\"   \"37\"   \n[5,] \"2\"   \"54\"    \"79\"   \"37\"   \n[6,] \"1\"   \"79\"    \"18\"   \"37\""
+  }
+]

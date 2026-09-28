@@ -5,3 +5,91 @@ editor: visual
 author: "Ryan Mersereau"
 ---
 
+# Intro
+
+Our goal for this project is to write functions that will manipulate and process data sets from a census API. We'll create *generic* functions to automatically summarize and plot certain returned data.
+
+## Data
+
+We are going to query the Public Use Microdata Sample (PUMS) Census API. Information about this is available here: [Information about PUMS API](https://www.census.gov/data/developers/data-sets/census-microdata-api.html)
+
+# Part 1: Data Processing:
+
+## Parsing Variable Values
+
+First, we'll start by downloading and parsing the JSON files with variable descriptions for the years
+2021-2024.
+
+```{r}
+#| warning: FALSE
+#| message: FALSE
+library(httr)
+library(jsonlite)
+library(tibble)
+```
+
+We only want to parse certain variables, so we'll specify them below.
+
+We want to write a function to `GET()` the URL, parse the JSON, and pull out a list of variables with their values. We'll obtain one list for each year 
+
+```{r}
+vars <- c("AGEP", "GASP", "GRPIP", "JWAP", "JWDP", "JWMNP", "PWGTP",
+               "FER", "HHL", "SCH", "SCHL", "SEX", "REGION", "DIVISION")
+# ST: 2021-2022
+# STATE: 2023-2024
+
+#API Key - Required, should find some way to encrypt this in future
+key <- "4270e8325c6e236168e18ec3682a2a6cc27469c7"
+
+# Function
+get_var_dict <- function(year) {
+  if (!(year  %in% 2021:2024)) {
+    stop("Year must be between 2021-2024")
+  }
+  
+  url <- paste0("https://api.census.gov/data/", year, "/acs/acs1/pums/variables.json?key=", key)
+  response <- GET(url)
+  stop_for_status(response)
+  parsed <- fromJSON(content(response, as = "text", encoding = "UTF-8"),
+                             simplifyVector = FALSE)
+  
+  state_var <- if (year <= 2022) "ST" else "STATE"
+  
+  #For each variable, keep a named character vector and sort by numeric order
+  lapply(parsed$variables[c(vars, state_var)], function(vector) {
+    items <- unlist(vector$values$item)
+    code_num <- suppressWarnings(as.numeric(names(items)))
+    items[order(is.na(code_num), code_num)]
+  })
+}
+
+var_dicts <- lapply(2021:2024, get_var_dict)
+names(var_dicts) <- 2021:2024
+```
+
+We can then save these lists as an `.rds` file in the repo under a data folder.
+Using `dir.create()` creates the folder from scratch, and rerunning it without warnings
+does nothing, allowing for more replicability.
+
+```{r}
+dir.create("data", showWarnings = FALSE)
+saveRDS(var_dicts, "data/var_dicts.rds")
+```
+
+## Parsing API Data
+
+```{r}
+# Testing via a hard-coded query
+response <- GET(
+  "https://api.census.gov/data/2024/acs/acs1/pums",
+  query = list(
+    get   = "SEX,PWGTP,AGEP",
+    `for` = "state:37",
+    key   = key
+  )
+)
+
+parsed <- fromJSON(content(response, as = "text", encoding = "UTF-8"))
+head(parsed)
+```
+

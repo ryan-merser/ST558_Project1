@@ -17,20 +17,19 @@ We are going to query the Public Use Microdata Sample (PUMS) Census API. Informa
 
 ## Parsing Variable Values
 
-First, we'll start by downloading and parsing the JSON files with variable descriptions for the years
-2021-2024.
+First, we'll start by downloading and parsing the JSON files with variable descriptions for the years 2021-2024.
 
 ```{r}
 #| warning: FALSE
 #| message: FALSE
 library(httr)
 library(jsonlite)
-library(tibble)
+library(tidyverse)
 ```
 
 We only want to parse certain variables, so we'll specify them below.
 
-We want to write a function to `GET()` the URL, parse the JSON, and pull out a list of variables with their values. We'll obtain one list for each year 
+We want to write a function to `GET()` the URL, parse the JSON, and pull out a list of variables with their values. We'll obtain one list for each year
 
 ```{r}
 vars <- c("AGEP", "GASP", "GRPIP", "JWAP", "JWDP", "JWMNP", "PWGTP",
@@ -43,14 +42,14 @@ key <- "4270e8325c6e236168e18ec3682a2a6cc27469c7"
 
 # Function
 get_var_dict <- function(year) {
-  if (!(year  %in% 2021:2024)) {
-    stop("Year must be between 2021-2024")
+  if (length(year) != 1 || !(year %in% 2021:2024)) {
+    stop("Year must be a single value between 2021 and 2024")
   }
   
   url <- paste0("https://api.census.gov/data/", year, "/acs/acs1/pums/variables.json?key=", key)
   response <- GET(url)
   stop_for_status(response)
-  parsed <- fromJSON(content(response, as = "text", encoding = "UTF-8"),
+  parsed <- fromJSON(content(response, as = "text", encoding = "UTF-8"), # Can also use the `rawToChar()` approach here 
                              simplifyVector = FALSE)
   
   state_var <- if (year <= 2022) "ST" else "STATE"
@@ -67,9 +66,7 @@ var_dicts <- lapply(2021:2024, get_var_dict)
 names(var_dicts) <- 2021:2024
 ```
 
-We can then save these lists as an `.rds` file in the repo under a data folder.
-Using `dir.create()` creates the folder from scratch, and rerunning it without warnings
-does nothing, allowing for more replicability.
+We can then save these lists as an `.rds` file in the repo under a data folder. Using `dir.create()` creates the folder from scratch, and rerunning it without warnings does nothing, allowing for more replicability.
 
 ```{r}
 dir.create("data", showWarnings = FALSE)
@@ -78,18 +75,148 @@ saveRDS(var_dicts, "data/var_dicts.rds")
 
 ## Parsing API Data
 
+Now, we'll want to write a function to query the PUMS API and return a nicely formatted tibble. When we query the API with our usual process, the data should come out nicely. Let's start with an example of this.
+
 ```{r}
 # Testing via a hard-coded query
-response <- GET(
-  "https://api.census.gov/data/2024/acs/acs1/pums",
-  query = list(
-    get   = "SEX,PWGTP,AGEP",
-    `for` = "state:37",
-    key   = key
-  )
-)
-
+url <- paste0("https://api.census.gov/data/2024/acs/acs1/pums",
+              "?get=SEX,PWGTP,AGEP&for=state:37",
+              "&key=", key)
+response <- GET(url)
 parsed <- fromJSON(content(response, as = "text", encoding = "UTF-8"))
 head(parsed)
 ```
 
+Next, we'll write a *helper* function to take what is returned by `GET()` and turn it into a nice `tibble`
+
+```{r}
+response_to_tibble <- function(response) {
+  stop_for_status(response)
+  parsed <- fromJSON(content(response, as = "text", encoding = "UTF-8"))
+  colnames(parsed) <- parsed[1, ]
+  as_tibble(parsed[-1, , drop = FALSE]) # drop = FALSE keeps matrix shape for the tibble
+}
+# Testing on response from above
+pums_tbl <- response_to_tibble(response)
+str(pums_tbl)
+```
+
+Now, we'll wrap this into a function that also parses the data by writing a function to query the API that allows the user to change the following items:
+
+- Year of survey (2024 as default)
+  - Check a valid value given
+- Specify numeric variables to be returned (AGEP and PWGTP as default)
+  - Turn variables into numeric values or time (use `lubridate`)
+- Specify the categorical variables to be returned (SEX as default)
+  - Must include at least one categorical variable
+  - Turn variables into factors with appropriate levels
+- Specify geography level: Region, Division, or State
+- Specify the specific region, division, or state to subset data on
+  - Specify a default level if the user doesn't
+  - Allowable values are in the `.rds` file
+  - Allow input all option that would return all values for that geography
+- Return an error if user specifies a variable not included in the above two lists
+
+```{r}
+query_pums <- function(year = 2024,
+                       num_vars = c("AGEP", "PWGTP"),
+                       cat_vars = "SEX",
+                       geo_level = "State",
+                       geo_value = NULL,
+                       api_key = key) {
+  # Stop if invalid year
+  if (length(year) != 1 || !(year %in% 2021:2024)) {
+    stop("year must be a single value: 2021, 2022, 2023, or 2024")
+  }
+  # Numeric variable options
+  num_options <- c("AGEP", "GASP", "GRPIP", "JWAP", "JWDP", "JWMNP")
+  num_vars <- toupper(num_vars)
+  bad_num <- setdiff(num_vars, c(num_options, "PWGTP"))
+  if (length(bad_num) > 0) {
+    stop("Invalid numeric variable(s): ", paste(bad_num, collapse = ", "), # Stop if invalid numeric variables requested
+         ". Choose from: ", paste(num_options, collapse = ", "))
+  }
+  if (!any(num_vars %in% num_options)) {
+    stop("Must request at least one numeric variable (other than PWGTP)") #Stop if no numeric variables requested
+  }
+  num_vars <- union(num_vars, "PWGTP")  # PWGTP is always returned
+  # Categorical variable options
+  cat_options <- c("FER", "HHL", "SCH", "SCHL", "SEX")
+  cat_vars <- toupper(cat_vars)
+  if (length(cat_vars) == 0) {
+    stop("At least one categorical variable must be requested")
+  }
+  bad_cat <- setdiff(cat_vars, cat_options)
+  if (length(bad_cat) > 0) {
+    stop("Invalid categorical variable(s): ", paste(bad_cat, collapse = ", "), # Stop if invalid categorical variables requested
+         ". Choose from: ", paste(cat_options, collapse = ", "))
+  }
+  # Geography level specification
+  if (length(geo_level) != 1 ||
+      !(tolower(geo_level) %in% c("region", "division", "state"))) {
+    stop("geo_level must be one of 'Region', 'Division', or 'State'") # Stop if no Region, Division, or State given
+  }
+  geo_level <- tolower(geo_level)
+
+  # Geography value options
+  var_dicts <- readRDS("data/var_dicts.rds")
+  geo_var <- switch(geo_level,
+                    region   = "REGION",
+                    division = "DIVISION",
+                    state    = if (year <= 2022) "ST" else "STATE")
+  geo_labels  <- var_dicts[[as.character(year)]][[geo_var]]
+  valid_codes <- names(geo_labels)[!grepl("Puerto Rico", geo_labels)]
+
+  # Defaults if no value given (chosen): South region (3), South Atlantic division (5), North Carolina (37)
+  if (is.null(geo_value)) {
+    geo_value <- switch(geo_level, region = "3", division = "5", state = "37")
+  }
+
+  if (length(geo_value) == 1 && tolower(geo_value) == "all") {
+    geo_codes <- "*"
+  } else {
+    # Match integers so 1, "1", and "01" all work
+    match_idx <- match(suppressWarnings(as.integer(geo_value)),
+                       as.integer(valid_codes))
+    if (anyNA(match_idx)) {
+      stop("Invalid ", geo_level, " value(s): ", # Stop if invalid geo level
+           paste(geo_value[is.na(match_idx)], collapse = ", "))
+    }
+    geo_codes <- paste(valid_codes[match_idx], collapse = ",")
+  }
+  # Query API and return a census tibble
+  response <- GET(
+    paste0("https://api.census.gov/data/", year, "/acs/acs1/pums"),
+    query = list(get   = paste(c(num_vars, cat_vars), collapse = ","),
+                 `for` = paste0(geo_level, ":", geo_codes),
+                 key   = api_key)
+  )
+  pums_tbl <- response_to_tibble(response)
+
+  class(pums_tbl) <- c("census", class(pums_tbl))
+  pums_tbl
+}  
+```
+
+Now lets test some queries that should work:
+
+```{r}
+query_pums()                                         # defaults: 2024, NC
+query_pums(2022, num_vars = c("AGEP", "GASP"), cat_vars = c("SEX", "SCHL"))
+# query_pums(2023, num_vars = "JWMNP", geo_level = "Region", geo_value = 1) # Takes a while
+# query_pums(2024, geo_level = "Division", geo_value = "all") # Takes a while
+```
+
+These queries shouldn't work:
+
+```{r}
+#| error: true
+query_pums(2020)                            # bad year
+query_pums(num_vars = "PWGTP")              # no numeric var besides PWGTP
+query_pums(cat_vars = "MAR")                # not an allowed categorical
+query_pums(geo_level = "All")               # not allowed
+query_pums(geo_level = c("State", "Region"))# multiple levels
+query_pums(geo_value = 99)                  # not a valid state code
+```
+
+## Combining Years

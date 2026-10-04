@@ -25,6 +25,9 @@ First, we'll start by downloading and parsing the JSON files with variable descr
 library(httr)
 library(jsonlite)
 library(tidyverse)
+library(lubridate)
+library(hms)
+library(dplyr)
 ```
 
 We only want to parse certain variables, so we'll specify them below.
@@ -101,7 +104,37 @@ pums_tbl <- response_to_tibble(response)
 str(pums_tbl)
 ```
 
-Now, we'll wrap this into a function that also parses the data by writing a function to query the API that allows the user to change the following items:
+Then, let's make some more helper functions to help us with our next step. These will convert variables into numeric values, normalize time codes and return the midpoint, and handle categorical variables by making them factors.
+
+```{r}
+# Strip leading zeros to help standard time codes: "01", "1", and "001" all match
+normalize_code <- function(x) {
+   sub("^0+(?=.)", "", x, perl = TRUE) }
+
+# Convert to numbers; codes labeled "N/A" in the dictionary become NA
+convert_numeric <- function(x, labels) {
+  na_codes <- normalize_code(names(labels)[grepl("^N/A", labels)])
+  x_num <- suppressWarnings(as.numeric(x))
+  x_num[normalize_code(x) %in% na_codes] <- NA
+  x_num
+}
+
+# Time: midpoint of intervals as a time of day
+convert_time <- function(x, labels) {
+  clean <- gsub("\\.", "", labels)   # "a.m." -> "am"
+  start <- parse_date_time(sub(" to .*", "", clean), "I:M p", quiet = TRUE)
+  end   <- parse_date_time(sub(".* to ", "", clean), "I:M p", quiet = TRUE)
+  mid_sec <- (hour(start) + hour(end)) * 1800 + (minute(start) + minute(end)) * 30
+  hms(seconds = mid_sec[match(normalize_code(x), normalize_code(names(labels)))])
+}
+
+# Categorical: factor with dictionary-ordered levels and readable labels
+make_factor <- function(x, labels) {
+  factor(normalize_code(x), levels = normalize_code(names(labels)), labels = labels)
+}
+```
+
+Now, using our helper functions, we'll wrap this into a function that also parses the data by writing a function to query the API that allows the user to change the following items:
 
 - Year of survey (2024 as default)
   - Check a valid value given
@@ -192,25 +225,47 @@ query_pums <- function(year = 2024,
                  key   = api_key)
   )
   pums_tbl <- response_to_tibble(response)
+  
+  # Convert column types using this years dictionary
+  dict <- var_dicts[[as.character(year)]]
+  for (v in num_vars) {
+    pums_tbl[[v]] <- if (v %in% c("JWAP", "JWDP")) {
+      convert_time(pums_tbl[[v]], dict[[v]])
+    } else {
+      convert_numeric(pums_tbl[[v]], dict[[v]])
+    }
+  }
+  for (v in cat_vars) {
+    pums_tbl[[v]] <- make_factor(pums_tbl[[v]], dict[[v]])
+  }
+  pums_tbl[[geo_level]] <- make_factor(pums_tbl[[geo_level]], dict[[geo_var]])
 
   class(pums_tbl) <- c("census", class(pums_tbl))
   pums_tbl
 }  
 ```
 
-Now lets test some queries that should work:
+Now lets test our function:
 
 ```{r}
-query_pums()                                         # defaults: 2024, NC
-query_pums(2022, num_vars = c("AGEP", "GASP"), cat_vars = c("SEX", "SCHL"))
-# query_pums(2023, num_vars = "JWMNP", geo_level = "Region", geo_value = 1) # Takes a while
-# query_pums(2024, geo_level = "Division", geo_value = "all") # Takes a while
+# Default values, year = 2024, State = NC
+query_pums()                                         
+```
+
+```{r}
+# Specified values
+test <- query_pums(2024,
+                        num_vars = c("AGEP", "JWAP", "JWMNP"),
+                        cat_vars = c("SEX", "SCHL"))
+str(test)
 ```
 
 These queries shouldn't work:
 
 ```{r}
-#| error: true
+#| error: TRUE
+#| message: FALSE
+#| eval: FALSE
 query_pums(2020)                            # bad year
 query_pums(num_vars = "PWGTP")              # no numeric var besides PWGTP
 query_pums(cat_vars = "MAR")                # not an allowed categorical
@@ -219,4 +274,45 @@ query_pums(geo_level = c("State", "Region"))# multiple levels
 query_pums(geo_value = 99)                  # not a valid state code
 ```
 
+
 ## Combining Years
+
+Finally, lets write a function that allows the user to specify multiple years of survey data (along with all the other options). This function will call a single year function as many times as needed and then combine the data into one final tibble with a year variable included.
+
+```{r}
+query_pums_combined <- function(years = 2024, ...) { # ... passes everything else to query_pums (not repeated)
+  years <- sort(unique(years))
+  if (length(years) == 0 || !all(years %in% 2021:2024)) {
+    stop("Years must be one or more of: 2021, 2022, 2023, 2024")
+  }
+
+  # Query each year, add a year column, and drop the census class before binding
+  results <- lapply(years, function(yr) {
+    year_tbl <- query_pums(year = yr, ...)
+    year_tbl$year <- yr
+    class(year_tbl) <- setdiff(class(year_tbl), "census")
+    year_tbl
+  })
+
+  combined <- bind_rows(results)
+  combined$year <- factor(combined$year)
+
+  class(combined) <- c("census", class(combined))
+  combined
+}
+```
+
+Testing
+
+```{r}
+multi <- query_pums_combined(c(2022, 2024),
+                    num_vars = c("AGEP", "JWMNP"),
+                    cat_vars = c("SEX", "SCHL"))
+str(multi)
+class(multi)          # should start with "census"
+table(multi$year)     # rows from each year
+
+query_pums_combined(2023)      # single year still works
+# query_pums_combined(c(2021, 2020))  # should error
+```
+

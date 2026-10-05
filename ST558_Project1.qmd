@@ -20,15 +20,12 @@ We are going to query the Public Use Microdata Sample (PUMS) Census API. Informa
 First, we'll start by downloading and parsing the JSON files with variable descriptions for the years 2021-2024.
 
 ```{r}
-#libraries
 #| warning: FALSE
 #| message: FALSE
 library(httr)
 library(jsonlite)
 library(tidyverse)
-library(lubridate)
 library(hms)
-library(dplyr)
 ```
 
 We only want to parse certain variables, so we'll specify them below.
@@ -255,7 +252,7 @@ query_pums()
 
 ```{r}
 # Specified values
-test <- query_pums(2024,
+test <- query_pums(2022,
                         num_vars = c("AGEP", "JWAP", "JWMNP"),
                         cat_vars = c("SEX", "SCHL"))
 str(test)
@@ -265,8 +262,7 @@ These queries shouldn't work:
 
 ```{r}
 #| error: TRUE
-#| message: FALSE
-#| eval: FALSE
+
 query_pums(2020)                            # bad year
 query_pums(num_vars = "PWGTP")              # no numeric var besides PWGTP
 query_pums(cat_vars = "MAR")                # not an allowed categorical
@@ -366,7 +362,7 @@ summary.census <- function(object, num_vars = NULL, cat_vars = NULL, ...) {
 
   # Weighted mean and SD for each numeric variable, dropping NAs
   num_summaries <- lapply(num_vars, function(v) {
-    keep <- !is.na(object[[v]])
+    keep <- !is.na(object[[v]]) # Keep if not na
     x <- object[[v]][keep]
     w <- weight[keep]
     mean_x <- sum(x * w) / sum(w)
@@ -388,31 +384,60 @@ summary.census <- function(object, num_vars = NULL, cat_vars = NULL, ...) {
 Now, lets test our function in several ways
 
 ```{r}
-# Default values
+# Default values (all numeric except PWGTP)
 summary(multi)
 ```
-```{r}
-# One numeric variable, AGEP
-summary(multi, num_vars = "AGEP")
-```
+
+
 ```{r}
 # One numeric, two categorical
 summary(multi, num_vars = "JWMNP", cat_vars = c("year", "SEX"))
 ```
+
+Bad example: Trying to pass time variables
+
 ```{r}
-# Bad example - trying to pass time variables
 #| error: TRUE
-#| message: FALSE
-#| eval: FALSE
-# summary(multi, num_vars = "JWAP")
+
+summary(multi, num_vars = "JWAP")
 ```
 
 ## Graphical Summaries
 
 Similar to this process, let's create a generic `plot()` function for a `census` class tibble. This will require the user to specify one categorical variable (can include year) and one numeric variable for plotting. The plot should create a boxplot of the numeric variable at the levels of the categorical variable.
 
+Quickly, let's also define some of the labels for our variables so our plots are more readable
+
 ```{r}
-plot.census <- function(x, cat_var, num_var, ...) {
+# Readable labels for plot titles and axes
+var_labels <- c(
+  AGEP     = "Age (years)",
+  GASP     = "Monthly gas cost ($)",
+  GRPIP    = "Gross rent as % of household income",
+  JWAP     = "Time of arrival at work",
+  JWDP     = "Time of departure for work",
+  JWMNP    = "Travel time to work (minutes)",
+  FER      = "Gave birth in past 12 months",
+  HHL      = "Household language",
+  SCH      = "School enrollment",
+  SCHL     = "Educational attainment",
+  SEX      = "Sex",
+  year     = "Survey year",
+  state    = "State",
+  region   = "Region",
+  division = "Division"
+)
+
+# Return the readable label if one exists, otherwise the variable name
+get_label <- function(var) {
+  if (var %in% names(var_labels)) var_labels[[var]] else var
+}
+```
+
+Now, let's build our generic plot function
+
+```{r}
+plot.census <- function(x, cat_var, num_var, colors = NULL, ...) {
   # Both variables are required
   if (missing(cat_var) || missing(num_var)) {
     stop("You must specify one categorical (cat_var) and one numeric (num_var) variable")
@@ -435,14 +460,28 @@ plot.census <- function(x, cat_var, num_var, ...) {
     stop("PWGTP is the weight variable; choose a different numeric variable")
   }
 
-  # Drop rows with missing values so ggplot doesn't warn about them
+  # Drop rows with missing values, drop unused factor levels
   plot_data <- x[!is.na(x[[num_var]]) & !is.na(x[[cat_var]]), ]
+  plot_data[[cat_var]] <- droplevels(plot_data[[cat_var]])
 
-  ggplot(plot_data, aes(x = get(cat_var), y = get(num_var), weight = PWGTP)) +
-    geom_boxplot() +
-    labs(x = cat_var,
-         y = num_var,
-         title = paste("Plot of", num_var, "by", cat_var))
+  p <- ggplot(plot_data, aes(x = get(cat_var), y = get(num_var),
+                             weight = PWGTP, fill = get(cat_var))) +
+    geom_boxplot(...) +                                    # pass extra options through
+    labs(x = get_label(cat_var),                           # readable labels
+         y = get_label(num_var),
+         title = paste(get_label(num_var), "by", get_label(cat_var))) +
+    theme(legend.position = "none")                        # x-axis already labels the boxes
+
+  # Apply user-chosen colors, one per level of the categorical variable
+  if (!is.null(colors)) {
+    n_levels <- nlevels(plot_data[[cat_var]])
+    if (length(colors) < n_levels) {
+      stop("Need at least ", n_levels, " colors for the levels of ", cat_var)
+    }
+    p <- p + scale_fill_manual(values = colors)
+  }
+
+  p
 }
 ```
 
@@ -450,16 +489,98 @@ Now, let's test our plot function in several ways
 
 ```{r}
 # One categorical variable: year and numeric variable age
-plot(multi, cat_var = "year", num_var = "AGEP")
+plot(multi, cat_var = "year", num_var = "AGEP", colors = c("gold", "forestgreen"))
 ```
+
+Here is a boxplot of age in years by survey years. We see very little change here which is expected as the survey years are only two years apart.
+
 ```{r}
 # Categorical variable sex and numeric variable commute time
-plot(multi, cat_var = "SEX", num_var = "JWMNP")    # commute time by sex
+plot(multi, cat_var = "SEX", num_var = "JWMNP", colors = c("skyblue", "magenta"))
 ```
+Here is a plot of travel time to work (in minutes) by sex. Both boxplots are centered around 25 minutes, with women having a slightly larger IQR for commute times. There are also some clear outliers for commuters over and hour and a few 'supercommuters' over two hours
+
+
 ```{r}
-# Plot of time of arrival and sex
-plot(test, cat_var = "SEX", num_var = "JWAP") 
+# Plot of time of arrival and sex with outliers lightened
+plot(test, cat_var = "SEX", num_var = "JWAP", outlier.alpha = 0.05) # default colors
+```
+These boxplots of time of arrival by sex have much more variance due to many workers who work night shifts or atypical hours, but the median of the data is still around 9AM, with females averaging slightly later arrival, from this data.
+
+
+Now, let's try a multi-level example of age by educational attainment. Here we flip the coordinates for better readability since there are so many levels of education.
+
+```{r}
+plot(test, cat_var = "SCHL", num_var = "AGEP") +
+  coord_flip()
+```
+Here we see a clear trend of education level and age being positively correlated. There are a lot of outliers for older people who never received a formal education beyond a few grade levels.
+
+Finally, here are some error cases that shouldn't work
+
+```{r}
+#| error: true
+
+plot(multi, cat_var = "year")                                         # missing num_var
+plot(multi, cat_var = "AGEP", num_var = "SEX")                        # variables swapped
+plot(multi, cat_var = "SCHL", num_var = "AGEP", colors = c("blue", "red"))  # too few colors
 ```
 
+## Investigation: Changes in commuting trends
 
-## Investigation
+Continuing with some of the ideas above, let's investigate how commuting times changed from 2021 to 2024 in the 
+state with one of the longest average commute times, New York. 2021 was still at the peak of COVID, so we will see if commute times shifted after this as more and more people got back on the roads and in-person work environments.
+
+Lets start with a new pull of the data using our combined query function, selecting relevant numeric and categorical variables:
+
+```{r}
+#| cache: TRUE
+commute_ny <- query_pums_combined(2021:2024,
+                                  num_vars = c("JWMNP", "JWAP", "AGEP"),
+                                  cat_vars = c("SEX", "SCHL"), geo_value = 36)
+```
+
+Next, let's display summaries by year for only commute times
+
+```{r}
+summary(commute_ny, num_vars = "JWMNP", cat_vars = "year")
+
+```
+
+Our numeric summary function only gives us pooled statistics. The mean one-way commute time across all four years in New York was 32.6 minutes. The categorical variable is total number of observations. This is useful, but we'll have to tweak this to get per year commute summaries
+
+```{r}
+commute_by_year <- sapply(levels(commute_ny$year), function(yr) {
+  year_data <- commute_ny[commute_ny$year == yr, ]
+  summary(year_data, num_vars = "JWMNP", cat_vars = "year")$numeric$JWMNP
+})
+commute_by_year
+```
+
+Here we can see mean and standard deviation commute times for the state by year. In 2021, the mean was the lowest, at 31.39 minutes. This mean increased to 33 minutes in 2022 and stayed around that length for the next two years.
+
+Now, let's plot this commute length and arrival time by year
+```{r}
+plot(commute_ny, cat_var = "year", num_var = "JWMNP", outlier.alpha = 0.1)
+plot(commute_ny, cat_var = "year", num_var = "JWAP", outlier.alpha = 0.05)
+```
+This boxplot supports our numerical summary findings of the average commute time increasing after the year 2021, although the IQR doesn't appear to move much. It's important to note that the center of the boxplot is the median, not mean, so median commute times gradually rose in 2022, and then substantially rose in 2023. The mean commute time for this data is higher than the median because the commute times are right-skewed.
+
+Also, the time of arrival at work appears to have little change over the years.
+
+
+Finally, lets compare New York to some other states: North Carolina and Texas in the year 2024 to see
+if there is a significant difference in commute times.
+
+```{r}
+commute_states <- query_pums(2024,
+                             num_vars = c("JWMNP", "AGEP"),
+                             cat_vars = "SEX",
+                             geo_value = c(36, 37, 48))   # NY, NC, TX
+
+summary(commute_states, num_vars = "JWMNP", cat_vars = "state")
+plot(commute_states, cat_var = "state", num_var = "JWMNP",
+     colors = c("steelblue", "darkorange", "darkred"))
+```
+
+Here we can see New York having a much higher mean travel time and Q3 than NC and Texas do for the year 2024.

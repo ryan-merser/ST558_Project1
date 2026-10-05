@@ -55,11 +55,11 @@ get_var_dict <- function(year) {
   
   state_var <- if (year <= 2022) "ST" else "STATE"
   
-  #For each variable, keep a named character vector and sort by numeric order
-  lapply(parsed$variables[c(vars, state_var)], function(vector) {
-    items <- unlist(vector$values$item)
+  #For each variable, keep a named character vector and sort by numeric order. Non-numeric codes become NA
+  lapply(parsed$variables[c(vars, state_var)], function(variable) {
+    items <- unlist(variable$values$item)
     code_num <- suppressWarnings(as.numeric(names(items)))
-    items[order(is.na(code_num), code_num)]
+    items[order(code_num)]
   })
 }
 
@@ -79,7 +79,7 @@ saveRDS(var_dicts, "data/var_dicts.rds")
 Now, we'll want to write a function to query the PUMS API and return a nicely formatted tibble. When we query the API with our usual process, the data should come out nicely. Let's start with an example of this.
 
 ```{r}
-# Testing via a hard-coded query
+# Testing via a hard-coded query, using state NC
 url <- paste0("https://api.census.gov/data/2024/acs/acs1/pums",
               "?get=SEX,PWGTP,AGEP&for=state:37",
               "&key=", key)
@@ -117,13 +117,13 @@ convert_numeric <- function(x, labels) {
   x_num
 }
 
-# Time: midpoint of intervals as a time of day
+# Time: midpoint of each interval as a time of day ("N/A" labels become NA)
 convert_time <- function(x, labels) {
   clean <- gsub("\\.", "", labels)   # "a.m." -> "am"
   start <- parse_date_time(sub(" to .*", "", clean), "I:M p", quiet = TRUE)
   end   <- parse_date_time(sub(".* to ", "", clean), "I:M p", quiet = TRUE)
-  mid_sec <- (hour(start) + hour(end)) * 1800 + (minute(start) + minute(end)) * 30
-  hms(seconds = mid_sec[match(normalize_code(x), normalize_code(names(labels)))])
+  midpoint <- as_hms(start + (end - start) / 2)
+  midpoint[match(normalize_code(x), normalize_code(names(labels)))]
 }
 
 # Categorical: factor with dictionary-ordered levels and readable labels
@@ -168,7 +168,7 @@ query_pums <- function(year = 2024,
          ". Choose from: ", paste(num_options, collapse = ", "))
   }
   if (!any(num_vars %in% num_options)) {
-    stop("Must request at least one numeric variable (other than PWGTP)") #Stop if no numeric variables requested
+    stop("Must request at least one numeric variable (other than PWGTP)") 
   }
   num_vars <- union(num_vars, "PWGTP")  # PWGTP is always returned
   # Categorical variable options
@@ -179,13 +179,13 @@ query_pums <- function(year = 2024,
   }
   bad_cat <- setdiff(cat_vars, cat_options)
   if (length(bad_cat) > 0) {
-    stop("Invalid categorical variable(s): ", paste(bad_cat, collapse = ", "), # Stop if invalid categorical variables requested
+    stop("Invalid categorical variable(s): ", paste(bad_cat, collapse = ", "), 
          ". Choose from: ", paste(cat_options, collapse = ", "))
   }
   # Geography level specification
   if (length(geo_level) != 1 ||
       !(tolower(geo_level) %in% c("region", "division", "state"))) {
-    stop("geo_level must be one of 'Region', 'Division', or 'State'") # Stop if no Region, Division, or State given
+    stop("geo_level must be one of 'Region', 'Division', or 'State'") 
   }
   geo_level <- tolower(geo_level)
 
@@ -210,7 +210,7 @@ query_pums <- function(year = 2024,
     match_idx <- match(suppressWarnings(as.integer(geo_value)),
                        as.integer(valid_codes))
     if (anyNA(match_idx)) {
-      stop("Invalid ", geo_level, " value(s): ", # Stop if invalid geo level
+      stop("Invalid ", geo_level, " value(s): ", 
            paste(geo_value[is.na(match_idx)], collapse = ", "))
     }
     geo_codes <- paste(valid_codes[match_idx], collapse = ",")
@@ -236,7 +236,8 @@ query_pums <- function(year = 2024,
   for (v in cat_vars) {
     pums_tbl[[v]] <- make_factor(pums_tbl[[v]], dict[[v]])
   }
-  pums_tbl[[geo_level]] <- make_factor(pums_tbl[[geo_level]], dict[[geo_var]])
+  # droplevels() removes geographies that weren't requested
+  pums_tbl[[geo_level]] <- droplevels(make_factor(pums_tbl[[geo_level]], dict[[geo_var]]))
 
   class(pums_tbl) <- c("census", class(pums_tbl))
   pums_tbl
@@ -252,10 +253,10 @@ query_pums()
 
 ```{r}
 # Specified values
-test <- query_pums(2022,
+nc_2022_test <- query_pums(2022,
                         num_vars = c("AGEP", "JWAP", "JWMNP"),
                         cat_vars = c("SEX", "SCHL"))
-str(test)
+str(nc_2022_test)
 ```
 
 These queries shouldn't work:
@@ -303,13 +304,17 @@ Testing a combined years query
 ```{r}
 multi <- query_pums_combined(c(2022, 2024),
                     num_vars = c("AGEP", "JWMNP"),
-                    cat_vars = c("SEX", "SCHL"))
+                    cat_vars = "SEX")
 str(multi)
 class(multi)          
-table(multi$year)     # rows from each year
+```
 
-query_pums_combined(2023)      # single year still works
-# query_pums_combined(c(2021, 2020))  # should error
+A year outside 2021-2024 should still return an error
+
+```{r}
+#| error: TRUE
+
+query_pums_combined(c(2021, 2020))
 ```
 
 # Part 2: Writing a Generic Function for Summarizing
@@ -336,12 +341,9 @@ For the `census` summary method, let's write a function that produces means and 
 summary.census <- function(object, num_vars = NULL, cat_vars = NULL, ...) {
   weight <- object$PWGTP
 
-  # Columns that are numeric but not time values
-  is_plain_numeric <- function(col) is.numeric(col) && !inherits(col, "hms")
-
-  # Defaults: all non-time numeric variables (except PWGTP) and all factors
+  # Defaults: all numeric variables (except PWGTP) and all factors
   if (is.null(num_vars)) {
-    num_vars <- names(object)[sapply(object, is_plain_numeric)]
+    num_vars <- names(object)[sapply(object, is.numeric)]
     num_vars <- setdiff(num_vars, "PWGTP")
   }
   if (is.null(cat_vars)) {
@@ -353,7 +355,7 @@ summary.census <- function(object, num_vars = NULL, cat_vars = NULL, ...) {
   if (length(missing_vars) > 0) {
     stop("Variable(s) not in the data: ", paste(missing_vars, collapse = ", "))
   }
-  if (!all(sapply(object[num_vars], is_plain_numeric))) {
+  if (!all(sapply(object[num_vars], is.numeric))) {
     stop("num_vars must be numeric, non-time variables")
   }
   if (!all(sapply(object[cat_vars], is.factor))) {
@@ -362,7 +364,7 @@ summary.census <- function(object, num_vars = NULL, cat_vars = NULL, ...) {
 
   # Weighted mean and SD for each numeric variable, dropping NAs
   num_summaries <- lapply(num_vars, function(v) {
-    keep <- !is.na(object[[v]]) # Keep if not na
+    keep <- !is.na(object[[v]])
     x <- object[[v]][keep]
     w <- weight[keep]
     mean_x <- sum(x * w) / sum(w)
@@ -387,7 +389,6 @@ Now, lets test our function in several ways
 # Default values (all numeric except PWGTP)
 summary(multi)
 ```
-
 
 ```{r}
 # One numeric, two categorical
@@ -498,22 +499,24 @@ Here is a boxplot of age in years by survey years. We see very little change her
 # Categorical variable sex and numeric variable commute time
 plot(multi, cat_var = "SEX", num_var = "JWMNP", colors = c("skyblue", "magenta"))
 ```
-Here is a plot of travel time to work (in minutes) by sex. Both boxplots are centered around 25 minutes, with women having a slightly larger IQR for commute times. There are also some clear outliers for commuters over and hour and a few 'supercommuters' over two hours
 
+Here is a plot of travel time to work (in minutes) by sex. Both boxplots are centered around 25 minutes, with women having a slightly larger IQR for commute times. There are also some clear outliers for commuters over and hour and a few 'supercommuters' over two hours
 
 ```{r}
 # Plot of time of arrival and sex with outliers lightened
-plot(test, cat_var = "SEX", num_var = "JWAP", outlier.alpha = 0.05) # default colors
+plot(nc_2022_test, cat_var = "SEX", num_var = "JWAP", outlier.alpha = 0.05) # default colors
 ```
+It's important to note that we don't use multi here because we are dealing with time, so we used our test query from earlier for 2022 NC data.
+
 These boxplots of time of arrival by sex have much more variance due to many workers who work night shifts or atypical hours, but the median of the data is still around 9AM, with females averaging slightly later arrival, from this data.
 
-
-Now, let's try a multi-level example of age by educational attainment. Here we flip the coordinates for better readability since there are so many levels of education.
+Now, let's try a multi-level example of age by educational attainment using the same 2022 NC Data. Here we flip the coordinates for better readability since there are so many levels of education.
 
 ```{r}
-plot(test, cat_var = "SCHL", num_var = "AGEP") +
+plot(nc_2022_test, cat_var = "SCHL", num_var = "AGEP") +
   coord_flip()
 ```
+
 Here we see a clear trend of education level and age being positively correlated. There are a lot of outliers for older people who never received a formal education beyond a few grade levels.
 
 Finally, here are some error cases that shouldn't work
@@ -528,10 +531,11 @@ plot(multi, cat_var = "SCHL", num_var = "AGEP", colors = c("blue", "red"))  # to
 
 ## Investigation: Changes in commuting trends
 
-Continuing with some of the ideas above, let's investigate how commuting times changed from 2021 to 2024 in the 
-state with one of the longest average commute times, New York. 2021 was still at the peak of COVID, so we will see if commute times shifted after this as more and more people got back on the roads and in-person work environments.
+Continuing with some of the ideas above, let's investigate how commuting times changed from 2021 to 2024 in the state with one of the longest average commute times, New York. 2021 was still at the peak of COVID, so we will see if commute times shifted after this as more and more people got back on the roads and in-person work environments.
 
 Lets start with a new pull of the data using our combined query function, selecting relevant numeric and categorical variables:
+
+(We can also include the cache: TRUE option to save the query results on renders, which saves time since this is a large amount of data)
 
 ```{r}
 #| cache: TRUE
@@ -560,17 +564,17 @@ commute_by_year
 Here we can see mean and standard deviation commute times for the state by year. In 2021, the mean was the lowest, at 31.39 minutes. This mean increased to 33 minutes in 2022 and stayed around that length for the next two years.
 
 Now, let's plot this commute length and arrival time by year
+
 ```{r}
 plot(commute_ny, cat_var = "year", num_var = "JWMNP", outlier.alpha = 0.1)
 plot(commute_ny, cat_var = "year", num_var = "JWAP", outlier.alpha = 0.05)
 ```
+
 This boxplot supports our numerical summary findings of the average commute time increasing after the year 2021, although the IQR doesn't appear to move much. It's important to note that the center of the boxplot is the median, not mean, so median commute times gradually rose in 2022, and then substantially rose in 2023. The mean commute time for this data is higher than the median because the commute times are right-skewed.
 
 Also, the time of arrival at work appears to have little change over the years.
 
-
-Finally, lets compare New York to some other states: North Carolina and Texas in the year 2024 to see
-if there is a significant difference in commute times.
+Finally, lets compare New York to some other states: North Carolina and Texas in the year 2024 to see if there is a significant difference in commute times.
 
 ```{r}
 commute_states <- query_pums(2024,

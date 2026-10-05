@@ -189,11 +189,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>  </span>
 <span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>  state_var <span class="ot">&lt;-</span> <span class="cf">if</span> (year <span class="sc">&lt;=</span> <span class="dv">2022</span>) <span class="st">"ST"</span> <span class="cf">else</span> <span class="st">"STATE"</span></span>
 <span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>  </span>
-<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>  <span class="co">#For each variable, keep a named character vector and sort by numeric order</span></span>
-<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">lapply</span>(parsed<span class="sc">$</span>variables[<span class="fu">c</span>(vars, state_var)], <span class="cf">function</span>(vector) {</span>
-<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    items <span class="ot">&lt;-</span> <span class="fu">unlist</span>(vector<span class="sc">$</span>values<span class="sc">$</span>item)</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>  <span class="co">#For each variable, keep a named character vector and sort by numeric order. Non-numeric codes become NA</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">lapply</span>(parsed<span class="sc">$</span>variables[<span class="fu">c</span>(vars, state_var)], <span class="cf">function</span>(variable) {</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    items <span class="ot">&lt;-</span> <span class="fu">unlist</span>(variable<span class="sc">$</span>values<span class="sc">$</span>item)</span>
 <span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>    code_num <span class="ot">&lt;-</span> <span class="fu">suppressWarnings</span>(<span class="fu">as.numeric</span>(<span class="fu">names</span>(items)))</span>
-<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    items[<span class="fu">order</span>(<span class="fu">is.na</span>(code_num), code_num)]</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    items[<span class="fu">order</span>(code_num)]</span>
 <span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  })</span>
 <span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a></span>
@@ -210,7 +210,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="parsing-api-data">Parsing API Data</h2>
 <p>Now, we’ll want to write a function to query the PUMS API and return a nicely formatted tibble. When we query the API with our usual process, the data should come out nicely. Let’s start with an example of this.</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Testing via a hard-coded query</span></span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Testing via a hard-coded query, using state NC</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>url <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"https://api.census.gov/data/2024/acs/acs1/pums"</span>,</span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>              <span class="st">"?get=SEX,PWGTP,AGEP&amp;for=state:37"</span>,</span>
 <span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>              <span class="st">"&amp;key="</span>, key)</span>
@@ -260,13 +260,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  x_num</span>
 <span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Time: midpoint of intervals as a time of day</span></span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Time: midpoint of each interval as a time of day ("N/A" labels become NA)</span></span>
 <span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>convert_time <span class="ot">&lt;-</span> <span class="cf">function</span>(x, labels) {</span>
 <span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>  clean <span class="ot">&lt;-</span> <span class="fu">gsub</span>(<span class="st">"</span><span class="sc">\\</span><span class="st">."</span>, <span class="st">""</span>, labels)   <span class="co"># "a.m." -&gt; "am"</span></span>
 <span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>  start <span class="ot">&lt;-</span> <span class="fu">parse_date_time</span>(<span class="fu">sub</span>(<span class="st">" to .*"</span>, <span class="st">""</span>, clean), <span class="st">"I:M p"</span>, <span class="at">quiet =</span> <span class="cn">TRUE</span>)</span>
 <span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>  end   <span class="ot">&lt;-</span> <span class="fu">parse_date_time</span>(<span class="fu">sub</span>(<span class="st">".* to "</span>, <span class="st">""</span>, clean), <span class="st">"I:M p"</span>, <span class="at">quiet =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>  mid_sec <span class="ot">&lt;-</span> (<span class="fu">hour</span>(start) <span class="sc">+</span> <span class="fu">hour</span>(end)) <span class="sc">*</span> <span class="dv">1800</span> <span class="sc">+</span> (<span class="fu">minute</span>(start) <span class="sc">+</span> <span class="fu">minute</span>(end)) <span class="sc">*</span> <span class="dv">30</span></span>
-<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">hms</span>(<span class="at">seconds =</span> mid_sec[<span class="fu">match</span>(<span class="fu">normalize_code</span>(x), <span class="fu">normalize_code</span>(<span class="fu">names</span>(labels)))])</span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>  midpoint <span class="ot">&lt;-</span> <span class="fu">as_hms</span>(start <span class="sc">+</span> (end <span class="sc">-</span> start) <span class="sc">/</span> <span class="dv">2</span>)</span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>  midpoint[<span class="fu">match</span>(<span class="fu">normalize_code</span>(x), <span class="fu">normalize_code</span>(<span class="fu">names</span>(labels)))]</span>
 <span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a><span class="co"># Categorical: factor with dictionary-ordered levels and readable labels</span></span>
@@ -318,7 +318,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>         <span class="st">". Choose from: "</span>, <span class="fu">paste</span>(num_options, <span class="at">collapse =</span> <span class="st">", "</span>))</span>
 <span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>  }</span>
 <span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">any</span>(num_vars <span class="sc">%in%</span> num_options)) {</span>
-<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"Must request at least one numeric variable (other than PWGTP)"</span>) <span class="co">#Stop if no numeric variables requested</span></span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"Must request at least one numeric variable (other than PWGTP)"</span>) </span>
 <span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a>  }</span>
 <span id="cb9-22"><a href="#cb9-22" aria-hidden="true" tabindex="-1"></a>  num_vars <span class="ot">&lt;-</span> <span class="fu">union</span>(num_vars, <span class="st">"PWGTP"</span>)  <span class="co"># PWGTP is always returned</span></span>
 <span id="cb9-23"><a href="#cb9-23" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Categorical variable options</span></span>
@@ -329,13 +329,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb9-28"><a href="#cb9-28" aria-hidden="true" tabindex="-1"></a>  }</span>
 <span id="cb9-29"><a href="#cb9-29" aria-hidden="true" tabindex="-1"></a>  bad_cat <span class="ot">&lt;-</span> <span class="fu">setdiff</span>(cat_vars, cat_options)</span>
 <span id="cb9-30"><a href="#cb9-30" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(bad_cat) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
-<span id="cb9-31"><a href="#cb9-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"Invalid categorical variable(s): "</span>, <span class="fu">paste</span>(bad_cat, <span class="at">collapse =</span> <span class="st">", "</span>), <span class="co"># Stop if invalid categorical variables requested</span></span>
+<span id="cb9-31"><a href="#cb9-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"Invalid categorical variable(s): "</span>, <span class="fu">paste</span>(bad_cat, <span class="at">collapse =</span> <span class="st">", "</span>), </span>
 <span id="cb9-32"><a href="#cb9-32" aria-hidden="true" tabindex="-1"></a>         <span class="st">". Choose from: "</span>, <span class="fu">paste</span>(cat_options, <span class="at">collapse =</span> <span class="st">", "</span>))</span>
 <span id="cb9-33"><a href="#cb9-33" aria-hidden="true" tabindex="-1"></a>  }</span>
 <span id="cb9-34"><a href="#cb9-34" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Geography level specification</span></span>
 <span id="cb9-35"><a href="#cb9-35" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(geo_level) <span class="sc">!=</span> <span class="dv">1</span> <span class="sc">||</span></span>
 <span id="cb9-36"><a href="#cb9-36" aria-hidden="true" tabindex="-1"></a>      <span class="sc">!</span>(<span class="fu">tolower</span>(geo_level) <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"region"</span>, <span class="st">"division"</span>, <span class="st">"state"</span>))) {</span>
-<span id="cb9-37"><a href="#cb9-37" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"geo_level must be one of 'Region', 'Division', or 'State'"</span>) <span class="co"># Stop if no Region, Division, or State given</span></span>
+<span id="cb9-37"><a href="#cb9-37" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"geo_level must be one of 'Region', 'Division', or 'State'"</span>) </span>
 <span id="cb9-38"><a href="#cb9-38" aria-hidden="true" tabindex="-1"></a>  }</span>
 <span id="cb9-39"><a href="#cb9-39" aria-hidden="true" tabindex="-1"></a>  geo_level <span class="ot">&lt;-</span> <span class="fu">tolower</span>(geo_level)</span>
 <span id="cb9-40"><a href="#cb9-40" aria-hidden="true" tabindex="-1"></a></span>
@@ -360,7 +360,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb9-59"><a href="#cb9-59" aria-hidden="true" tabindex="-1"></a>    match_idx <span class="ot">&lt;-</span> <span class="fu">match</span>(<span class="fu">suppressWarnings</span>(<span class="fu">as.integer</span>(geo_value)),</span>
 <span id="cb9-60"><a href="#cb9-60" aria-hidden="true" tabindex="-1"></a>                       <span class="fu">as.integer</span>(valid_codes))</span>
 <span id="cb9-61"><a href="#cb9-61" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="fu">anyNA</span>(match_idx)) {</span>
-<span id="cb9-62"><a href="#cb9-62" aria-hidden="true" tabindex="-1"></a>      <span class="fu">stop</span>(<span class="st">"Invalid "</span>, geo_level, <span class="st">" value(s): "</span>, <span class="co"># Stop if invalid geo level</span></span>
+<span id="cb9-62"><a href="#cb9-62" aria-hidden="true" tabindex="-1"></a>      <span class="fu">stop</span>(<span class="st">"Invalid "</span>, geo_level, <span class="st">" value(s): "</span>, </span>
 <span id="cb9-63"><a href="#cb9-63" aria-hidden="true" tabindex="-1"></a>           <span class="fu">paste</span>(geo_value[<span class="fu">is.na</span>(match_idx)], <span class="at">collapse =</span> <span class="st">", "</span>))</span>
 <span id="cb9-64"><a href="#cb9-64" aria-hidden="true" tabindex="-1"></a>    }</span>
 <span id="cb9-65"><a href="#cb9-65" aria-hidden="true" tabindex="-1"></a>    geo_codes <span class="ot">&lt;-</span> <span class="fu">paste</span>(valid_codes[match_idx], <span class="at">collapse =</span> <span class="st">","</span>)</span>
@@ -386,11 +386,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb9-85"><a href="#cb9-85" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (v <span class="cf">in</span> cat_vars) {</span>
 <span id="cb9-86"><a href="#cb9-86" aria-hidden="true" tabindex="-1"></a>    pums_tbl[[v]] <span class="ot">&lt;-</span> <span class="fu">make_factor</span>(pums_tbl[[v]], dict[[v]])</span>
 <span id="cb9-87"><a href="#cb9-87" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb9-88"><a href="#cb9-88" aria-hidden="true" tabindex="-1"></a>  pums_tbl[[geo_level]] <span class="ot">&lt;-</span> <span class="fu">make_factor</span>(pums_tbl[[geo_level]], dict[[geo_var]])</span>
-<span id="cb9-89"><a href="#cb9-89" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb9-90"><a href="#cb9-90" aria-hidden="true" tabindex="-1"></a>  <span class="fu">class</span>(pums_tbl) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"census"</span>, <span class="fu">class</span>(pums_tbl))</span>
-<span id="cb9-91"><a href="#cb9-91" aria-hidden="true" tabindex="-1"></a>  pums_tbl</span>
-<span id="cb9-92"><a href="#cb9-92" aria-hidden="true" tabindex="-1"></a>}  </span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb9-88"><a href="#cb9-88" aria-hidden="true" tabindex="-1"></a>  <span class="co"># droplevels() removes geographies that weren't requested</span></span>
+<span id="cb9-89"><a href="#cb9-89" aria-hidden="true" tabindex="-1"></a>  pums_tbl[[geo_level]] <span class="ot">&lt;-</span> <span class="fu">droplevels</span>(<span class="fu">make_factor</span>(pums_tbl[[geo_level]], dict[[geo_var]]))</span>
+<span id="cb9-90"><a href="#cb9-90" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-91"><a href="#cb9-91" aria-hidden="true" tabindex="-1"></a>  <span class="fu">class</span>(pums_tbl) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"census"</span>, <span class="fu">class</span>(pums_tbl))</span>
+<span id="cb9-92"><a href="#cb9-92" aria-hidden="true" tabindex="-1"></a>  pums_tbl</span>
+<span id="cb9-93"><a href="#cb9-93" aria-hidden="true" tabindex="-1"></a>}  </span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>Now lets test our function:</p>
 <div class="cell">
@@ -415,10 +416,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Specified values</span></span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>test <span class="ot">&lt;-</span> <span class="fu">query_pums</span>(<span class="dv">2022</span>,</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>nc_2022_test <span class="ot">&lt;-</span> <span class="fu">query_pums</span>(<span class="dv">2022</span>,</span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>                        <span class="at">num_vars =</span> <span class="fu">c</span>(<span class="st">"AGEP"</span>, <span class="st">"JWAP"</span>, <span class="st">"JWMNP"</span>),</span>
 <span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>                        <span class="at">cat_vars =</span> <span class="fu">c</span>(<span class="st">"SEX"</span>, <span class="st">"SCHL"</span>))</span>
-<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="fu">str</span>(test)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="fu">str</span>(nc_2022_test)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>census [109,230 × 7] (S3: census/tbl_df/tbl/data.frame)
  $ AGEP : num [1:109230] 80 60 18 18 87 18 39 40 21 19 ...
@@ -428,7 +429,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  $ PWGTP: num [1:109230] 45 7 64 56 50 56 36 38 38 8 ...
  $ SEX  : Factor w/ 2 levels "Male","Female": 1 1 1 1 2 1 1 1 1 2 ...
  $ SCHL : Factor w/ 25 levels "N/A (less than 3 years old)",..: 11 19 17 19 17 19 17 16 17 21 ...
- $ state: Factor w/ 52 levels "Alabama/AL","Alaska/AK",..: 34 34 34 34 34 34 34 34 34 34 ...</code></pre>
+ $ state: Factor w/ 1 level "North Carolina/NC": 1 1 1 1 1 1 1 1 1 1 ...</code></pre>
 </div>
 </div>
 <p>These queries shouldn’t work:</p>
@@ -488,46 +489,28 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>multi <span class="ot">&lt;-</span> <span class="fu">query_pums_combined</span>(<span class="fu">c</span>(<span class="dv">2022</span>, <span class="dv">2024</span>),</span>
 <span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>                    <span class="at">num_vars =</span> <span class="fu">c</span>(<span class="st">"AGEP"</span>, <span class="st">"JWMNP"</span>),</span>
-<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>                    <span class="at">cat_vars =</span> <span class="fu">c</span>(<span class="st">"SEX"</span>, <span class="st">"SCHL"</span>))</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>                    <span class="at">cat_vars =</span> <span class="st">"SEX"</span>)</span>
 <span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a><span class="fu">str</span>(multi)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>census [223,500 × 7] (S3: census/tbl_df/tbl/data.frame)
+<pre><code>census [223,500 × 6] (S3: census/tbl_df/tbl/data.frame)
  $ AGEP : num [1:223500] 80 60 18 18 87 18 39 40 21 19 ...
  $ JWMNP: num [1:223500] NA NA 5 NA NA NA NA NA 5 NA ...
  $ PWGTP: num [1:223500] 45 7 64 56 50 56 36 38 38 8 ...
  $ SEX  : Factor w/ 2 levels "Male","Female": 1 1 1 1 2 1 1 1 1 2 ...
- $ SCHL : Factor w/ 25 levels "N/A (less than 3 years old)",..: 11 19 17 19 17 19 17 16 17 21 ...
- $ state: Factor w/ 52 levels "Alabama/AL","Alaska/AK",..: 34 34 34 34 34 34 34 34 34 34 ...
+ $ state: Factor w/ 1 level "North Carolina/NC": 1 1 1 1 1 1 1 1 1 1 ...
  $ year : Factor w/ 2 levels "2022","2024": 1 1 1 1 1 1 1 1 1 1 ...</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">class</span>(multi)          </span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>[1] "census"     "tbl_df"     "tbl"        "data.frame"</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">table</span>(multi<span class="sc">$</span>year)     <span class="co"># rows from each year</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stdout">
-<pre><code>
-  2022   2024 
-109230 114270 </code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="fu">query_pums_combined</span>(<span class="dv">2023</span>)      <span class="co"># single year still works</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stdout">
-<pre><code># A tibble: 111,920 × 5
-    AGEP PWGTP SEX    state             year 
-   &lt;dbl&gt; &lt;dbl&gt; &lt;fct&gt;  &lt;fct&gt;             &lt;fct&gt;
- 1    18    62 Female North Carolina/NC 2023 
- 2    93    94 Female North Carolina/NC 2023 
- 3    22    73 Male   North Carolina/NC 2023 
- 4    39    63 Male   North Carolina/NC 2023 
- 5    19    50 Male   North Carolina/NC 2023 
- 6    39    41 Male   North Carolina/NC 2023 
- 7    26    16 Female North Carolina/NC 2023 
- 8    19    10 Male   North Carolina/NC 2023 
- 9    34    53 Male   North Carolina/NC 2023 
-10    19     7 Female North Carolina/NC 2023 
-# ℹ 111,910 more rows</code></pre>
+<p>A year outside 2021-2024 should still return an error</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">query_pums_combined</span>(<span class="fu">c</span>(<span class="dv">2021</span>, <span class="dv">2020</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-error">
+<pre><code>Error in query_pums_combined(c(2021, 2020)): Years must be one or more of: 2021, 2022, 2023, 2024</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="co"># query_pums_combined(c(2021, 2020))  # should error</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </section>
 </section>
@@ -546,57 +529,54 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><p>All values will be returned as a named list</p></li>
 </ul>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>summary.census <span class="ot">&lt;-</span> <span class="cf">function</span>(object, <span class="at">num_vars =</span> <span class="cn">NULL</span>, <span class="at">cat_vars =</span> <span class="cn">NULL</span>, ...) {</span>
-<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a>  weight <span class="ot">&lt;-</span> object<span class="sc">$</span>PWGTP</span>
-<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Columns that are numeric but not time values</span></span>
-<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a>  is_plain_numeric <span class="ot">&lt;-</span> <span class="cf">function</span>(col) <span class="fu">is.numeric</span>(col) <span class="sc">&amp;&amp;</span> <span class="sc">!</span><span class="fu">inherits</span>(col, <span class="st">"hms"</span>)</span>
-<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Defaults: all non-time numeric variables (except PWGTP) and all factors</span></span>
-<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.null</span>(num_vars)) {</span>
-<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>    num_vars <span class="ot">&lt;-</span> <span class="fu">names</span>(object)[<span class="fu">sapply</span>(object, is_plain_numeric)]</span>
-<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a>    num_vars <span class="ot">&lt;-</span> <span class="fu">setdiff</span>(num_vars, <span class="st">"PWGTP"</span>)</span>
-<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb36-12"><a href="#cb36-12" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.null</span>(cat_vars)) {</span>
-<span id="cb36-13"><a href="#cb36-13" aria-hidden="true" tabindex="-1"></a>    cat_vars <span class="ot">&lt;-</span> <span class="fu">names</span>(object)[<span class="fu">sapply</span>(object, is.factor)]</span>
-<span id="cb36-14"><a href="#cb36-14" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb36-15"><a href="#cb36-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-16"><a href="#cb36-16" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Validate user input</span></span>
-<span id="cb36-17"><a href="#cb36-17" aria-hidden="true" tabindex="-1"></a>  missing_vars <span class="ot">&lt;-</span> <span class="fu">setdiff</span>(<span class="fu">c</span>(num_vars, cat_vars), <span class="fu">names</span>(object))</span>
-<span id="cb36-18"><a href="#cb36-18" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(missing_vars) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
-<span id="cb36-19"><a href="#cb36-19" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"Variable(s) not in the data: "</span>, <span class="fu">paste</span>(missing_vars, <span class="at">collapse =</span> <span class="st">", "</span>))</span>
-<span id="cb36-20"><a href="#cb36-20" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb36-21"><a href="#cb36-21" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">all</span>(<span class="fu">sapply</span>(object[num_vars], is_plain_numeric))) {</span>
-<span id="cb36-22"><a href="#cb36-22" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"num_vars must be numeric, non-time variables"</span>)</span>
-<span id="cb36-23"><a href="#cb36-23" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb36-24"><a href="#cb36-24" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">all</span>(<span class="fu">sapply</span>(object[cat_vars], is.factor))) {</span>
-<span id="cb36-25"><a href="#cb36-25" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"cat_vars must be categorical (factor) variables"</span>)</span>
-<span id="cb36-26"><a href="#cb36-26" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb36-27"><a href="#cb36-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-28"><a href="#cb36-28" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Weighted mean and SD for each numeric variable, dropping NAs</span></span>
-<span id="cb36-29"><a href="#cb36-29" aria-hidden="true" tabindex="-1"></a>  num_summaries <span class="ot">&lt;-</span> <span class="fu">lapply</span>(num_vars, <span class="cf">function</span>(v) {</span>
-<span id="cb36-30"><a href="#cb36-30" aria-hidden="true" tabindex="-1"></a>    keep <span class="ot">&lt;-</span> <span class="sc">!</span><span class="fu">is.na</span>(object[[v]]) <span class="co"># Keep if not na</span></span>
-<span id="cb36-31"><a href="#cb36-31" aria-hidden="true" tabindex="-1"></a>    x <span class="ot">&lt;-</span> object[[v]][keep]</span>
-<span id="cb36-32"><a href="#cb36-32" aria-hidden="true" tabindex="-1"></a>    w <span class="ot">&lt;-</span> weight[keep]</span>
-<span id="cb36-33"><a href="#cb36-33" aria-hidden="true" tabindex="-1"></a>    mean_x <span class="ot">&lt;-</span> <span class="fu">sum</span>(x <span class="sc">*</span> w) <span class="sc">/</span> <span class="fu">sum</span>(w)</span>
-<span id="cb36-34"><a href="#cb36-34" aria-hidden="true" tabindex="-1"></a>    sd_x <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(<span class="fu">sum</span>(x<span class="sc">^</span><span class="dv">2</span> <span class="sc">*</span> w) <span class="sc">/</span> <span class="fu">sum</span>(w) <span class="sc">-</span> mean_x<span class="sc">^</span><span class="dv">2</span>)</span>
-<span id="cb36-35"><a href="#cb36-35" aria-hidden="true" tabindex="-1"></a>    <span class="fu">c</span>(<span class="at">mean =</span> mean_x, <span class="at">sd =</span> sd_x)</span>
-<span id="cb36-36"><a href="#cb36-36" aria-hidden="true" tabindex="-1"></a>  })</span>
-<span id="cb36-37"><a href="#cb36-37" aria-hidden="true" tabindex="-1"></a>  <span class="fu">names</span>(num_summaries) <span class="ot">&lt;-</span> num_vars</span>
-<span id="cb36-38"><a href="#cb36-38" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-39"><a href="#cb36-39" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Weighted counts for each categorical variable</span></span>
-<span id="cb36-40"><a href="#cb36-40" aria-hidden="true" tabindex="-1"></a>  cat_summaries <span class="ot">&lt;-</span> <span class="fu">lapply</span>(cat_vars, <span class="cf">function</span>(v) {</span>
-<span id="cb36-41"><a href="#cb36-41" aria-hidden="true" tabindex="-1"></a>    <span class="fu">tapply</span>(weight, object[[v]], sum, <span class="at">default =</span> <span class="dv">0</span>)</span>
-<span id="cb36-42"><a href="#cb36-42" aria-hidden="true" tabindex="-1"></a>  })</span>
-<span id="cb36-43"><a href="#cb36-43" aria-hidden="true" tabindex="-1"></a>  <span class="fu">names</span>(cat_summaries) <span class="ot">&lt;-</span> cat_vars</span>
-<span id="cb36-44"><a href="#cb36-44" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-45"><a href="#cb36-45" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">numeric =</span> num_summaries, <span class="at">categorical =</span> cat_summaries)</span>
-<span id="cb36-46"><a href="#cb36-46" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>summary.census <span class="ot">&lt;-</span> <span class="cf">function</span>(object, <span class="at">num_vars =</span> <span class="cn">NULL</span>, <span class="at">cat_vars =</span> <span class="cn">NULL</span>, ...) {</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>  weight <span class="ot">&lt;-</span> object<span class="sc">$</span>PWGTP</span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Defaults: all numeric variables (except PWGTP) and all factors</span></span>
+<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.null</span>(num_vars)) {</span>
+<span id="cb33-6"><a href="#cb33-6" aria-hidden="true" tabindex="-1"></a>    num_vars <span class="ot">&lt;-</span> <span class="fu">names</span>(object)[<span class="fu">sapply</span>(object, is.numeric)]</span>
+<span id="cb33-7"><a href="#cb33-7" aria-hidden="true" tabindex="-1"></a>    num_vars <span class="ot">&lt;-</span> <span class="fu">setdiff</span>(num_vars, <span class="st">"PWGTP"</span>)</span>
+<span id="cb33-8"><a href="#cb33-8" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb33-9"><a href="#cb33-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.null</span>(cat_vars)) {</span>
+<span id="cb33-10"><a href="#cb33-10" aria-hidden="true" tabindex="-1"></a>    cat_vars <span class="ot">&lt;-</span> <span class="fu">names</span>(object)[<span class="fu">sapply</span>(object, is.factor)]</span>
+<span id="cb33-11"><a href="#cb33-11" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb33-12"><a href="#cb33-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-13"><a href="#cb33-13" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Validate user input</span></span>
+<span id="cb33-14"><a href="#cb33-14" aria-hidden="true" tabindex="-1"></a>  missing_vars <span class="ot">&lt;-</span> <span class="fu">setdiff</span>(<span class="fu">c</span>(num_vars, cat_vars), <span class="fu">names</span>(object))</span>
+<span id="cb33-15"><a href="#cb33-15" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(missing_vars) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb33-16"><a href="#cb33-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"Variable(s) not in the data: "</span>, <span class="fu">paste</span>(missing_vars, <span class="at">collapse =</span> <span class="st">", "</span>))</span>
+<span id="cb33-17"><a href="#cb33-17" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb33-18"><a href="#cb33-18" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">all</span>(<span class="fu">sapply</span>(object[num_vars], is.numeric))) {</span>
+<span id="cb33-19"><a href="#cb33-19" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"num_vars must be numeric, non-time variables"</span>)</span>
+<span id="cb33-20"><a href="#cb33-20" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb33-21"><a href="#cb33-21" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">all</span>(<span class="fu">sapply</span>(object[cat_vars], is.factor))) {</span>
+<span id="cb33-22"><a href="#cb33-22" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"cat_vars must be categorical (factor) variables"</span>)</span>
+<span id="cb33-23"><a href="#cb33-23" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb33-24"><a href="#cb33-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-25"><a href="#cb33-25" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Weighted mean and SD for each numeric variable, dropping NAs</span></span>
+<span id="cb33-26"><a href="#cb33-26" aria-hidden="true" tabindex="-1"></a>  num_summaries <span class="ot">&lt;-</span> <span class="fu">lapply</span>(num_vars, <span class="cf">function</span>(v) {</span>
+<span id="cb33-27"><a href="#cb33-27" aria-hidden="true" tabindex="-1"></a>    keep <span class="ot">&lt;-</span> <span class="sc">!</span><span class="fu">is.na</span>(object[[v]])</span>
+<span id="cb33-28"><a href="#cb33-28" aria-hidden="true" tabindex="-1"></a>    x <span class="ot">&lt;-</span> object[[v]][keep]</span>
+<span id="cb33-29"><a href="#cb33-29" aria-hidden="true" tabindex="-1"></a>    w <span class="ot">&lt;-</span> weight[keep]</span>
+<span id="cb33-30"><a href="#cb33-30" aria-hidden="true" tabindex="-1"></a>    mean_x <span class="ot">&lt;-</span> <span class="fu">sum</span>(x <span class="sc">*</span> w) <span class="sc">/</span> <span class="fu">sum</span>(w)</span>
+<span id="cb33-31"><a href="#cb33-31" aria-hidden="true" tabindex="-1"></a>    sd_x <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(<span class="fu">sum</span>(x<span class="sc">^</span><span class="dv">2</span> <span class="sc">*</span> w) <span class="sc">/</span> <span class="fu">sum</span>(w) <span class="sc">-</span> mean_x<span class="sc">^</span><span class="dv">2</span>)</span>
+<span id="cb33-32"><a href="#cb33-32" aria-hidden="true" tabindex="-1"></a>    <span class="fu">c</span>(<span class="at">mean =</span> mean_x, <span class="at">sd =</span> sd_x)</span>
+<span id="cb33-33"><a href="#cb33-33" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb33-34"><a href="#cb33-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">names</span>(num_summaries) <span class="ot">&lt;-</span> num_vars</span>
+<span id="cb33-35"><a href="#cb33-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-36"><a href="#cb33-36" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Weighted counts for each categorical variable</span></span>
+<span id="cb33-37"><a href="#cb33-37" aria-hidden="true" tabindex="-1"></a>  cat_summaries <span class="ot">&lt;-</span> <span class="fu">lapply</span>(cat_vars, <span class="cf">function</span>(v) {</span>
+<span id="cb33-38"><a href="#cb33-38" aria-hidden="true" tabindex="-1"></a>    <span class="fu">tapply</span>(weight, object[[v]], sum, <span class="at">default =</span> <span class="dv">0</span>)</span>
+<span id="cb33-39"><a href="#cb33-39" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb33-40"><a href="#cb33-40" aria-hidden="true" tabindex="-1"></a>  <span class="fu">names</span>(cat_summaries) <span class="ot">&lt;-</span> cat_vars</span>
+<span id="cb33-41"><a href="#cb33-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-42"><a href="#cb33-42" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">numeric =</span> num_summaries, <span class="at">categorical =</span> cat_summaries)</span>
+<span id="cb33-43"><a href="#cb33-43" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>Now, lets test our function in several ways</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Default values (all numeric except PWGTP)</span></span>
-<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(multi)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Default values (all numeric except PWGTP)</span></span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(multi)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>$numeric
 $numeric$AGEP
@@ -613,95 +593,9 @@ $categorical$SEX
     Male   Female 
 10619992 11125005 
 
-$categorical$SCHL
-                   N/A (less than 3 years old) 
-                                        697002 
-                        No schooling completed 
-                                        705698 
-                     Nursery school, preschool 
-                                        305081 
-                                  Kindergarten 
-                                        260290 
-                                       Grade 1 
-                                        252307 
-                                       Grade 2 
-                                        268657 
-                                       Grade 3 
-                                        287257 
-                                       Grade 4 
-                                        283983 
-                                       Grade 5 
-                                        313123 
-                                       Grade 6 
-                                        337004 
-                                       Grade 7 
-                                        312775 
-                                       Grade 8 
-                                        424733 
-                                       Grade 9 
-                                        475008 
-                                      Grade 10 
-                                        515543 
-                                      Grade 11 
-                                        540268 
-                       12th grade - no diploma 
-                                        278268 
-                   Regular high school diploma 
-                                       3817960 
-                 GED or alternative credential 
-                                        665200 
-            Some college, but less than 1 year 
-                                       1151063 
-  1 or more years of college credit, no degree 
-                                       2389117 
-                            Associate's degree 
-                                       1662267 
-                             Bachelor's degree 
-                                       3667179 
-                               Master's degree 
-                                       1570539 
-Professional degree beyond a bachelor's degree 
-                                        301996 
-                              Doctorate degree 
-                                        262679 
-
 $categorical$state
-             Alabama/AL               Alaska/AK              Arizona/AZ 
-                      0                       0                       0 
-            Arkansas/AR           California/CA             Colorado/CO 
-                      0                       0                       0 
-         Connecticut/CT             Delaware/DE District of Columbia/DC 
-                      0                       0                       0 
-             Florida/FL              Georgia/GA               Hawaii/HI 
-                      0                       0                       0 
-               Idaho/ID             Illinois/IL              Indiana/IN 
-                      0                       0                       0 
-                Iowa/IA               Kansas/KS             Kentucky/KY 
-                      0                       0                       0 
-           Louisiana/LA                Maine/ME             Maryland/MD 
-                      0                       0                       0 
-       Massachusetts/MA             Michigan/MI            Minnesota/MN 
-                      0                       0                       0 
-         Mississippi/MS             Missouri/MO              Montana/MT 
-                      0                       0                       0 
-            Nebraska/NE               Nevada/NV        New Hampshire/NH 
-                      0                       0                       0 
-          New Jersey/NJ           New Mexico/NM             New York/NY 
-                      0                       0                       0 
-      North Carolina/NC         North Dakota/ND                 Ohio/OH 
-               21744997                       0                       0 
-            Oklahoma/OK               Oregon/OR         Pennsylvania/PA 
-                      0                       0                       0 
-        Rhode Island/RI       South Carolina/SC         South Dakota/SD 
-                      0                       0                       0 
-           Tennessee/TN                Texas/TX                 Utah/UT 
-                      0                       0                       0 
-             Vermont/VT             Virginia/VA           Washington/WA 
-                      0                       0                       0 
-       West Virginia/WV            Wisconsin/WI              Wyoming/WY 
-                      0                       0                       0 
-         Puerto Rico/PR 
-                      0 
+North Carolina/NC 
+         21744997 
 
 $categorical$year
     2022     2024 
@@ -709,8 +603,8 @@ $categorical$year
 </div>
 </div>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a><span class="co"># One numeric, two categorical</span></span>
-<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(multi, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="fu">c</span>(<span class="st">"year"</span>, <span class="st">"SEX"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="co"># One numeric, two categorical</span></span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(multi, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="fu">c</span>(<span class="st">"year"</span>, <span class="st">"SEX"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>$numeric
 $numeric$JWMNP
@@ -730,7 +624,7 @@ $categorical$SEX
 </div>
 <p>Bad example: Trying to pass time variables</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(multi, <span class="at">num_vars =</span> <span class="st">"JWAP"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(multi, <span class="at">num_vars =</span> <span class="st">"JWAP"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-error">
 <pre><code>Error in summary.census(multi, num_vars = "JWAP"): Variable(s) not in the data: JWAP</code></pre>
 </div>
@@ -741,95 +635,83 @@ $categorical$SEX
 <p>Similar to this process, let’s create a generic <code>plot()</code> function for a <code>census</code> class tibble. This will require the user to specify one categorical variable (can include year) and one numeric variable for plotting. The plot should create a boxplot of the numeric variable at the levels of the categorical variable.</p>
 <p>Quickly, let’s also define some of the labels for our variables so our plots are more readable</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Readable labels for plot titles and axes</span></span>
-<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a>var_labels <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
-<span id="cb43-3"><a href="#cb43-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">AGEP     =</span> <span class="st">"Age (years)"</span>,</span>
-<span id="cb43-4"><a href="#cb43-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">GASP     =</span> <span class="st">"Monthly gas cost ($)"</span>,</span>
-<span id="cb43-5"><a href="#cb43-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">GRPIP    =</span> <span class="st">"Gross rent as % of household income"</span>,</span>
-<span id="cb43-6"><a href="#cb43-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">JWAP     =</span> <span class="st">"Time of arrival at work"</span>,</span>
-<span id="cb43-7"><a href="#cb43-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">JWDP     =</span> <span class="st">"Time of departure for work"</span>,</span>
-<span id="cb43-8"><a href="#cb43-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">JWMNP    =</span> <span class="st">"Travel time to work (minutes)"</span>,</span>
-<span id="cb43-9"><a href="#cb43-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">FER      =</span> <span class="st">"Gave birth in past 12 months"</span>,</span>
-<span id="cb43-10"><a href="#cb43-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">HHL      =</span> <span class="st">"Household language"</span>,</span>
-<span id="cb43-11"><a href="#cb43-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">SCH      =</span> <span class="st">"School enrollment"</span>,</span>
-<span id="cb43-12"><a href="#cb43-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">SCHL     =</span> <span class="st">"Educational attainment"</span>,</span>
-<span id="cb43-13"><a href="#cb43-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">SEX      =</span> <span class="st">"Sex"</span>,</span>
-<span id="cb43-14"><a href="#cb43-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">year     =</span> <span class="st">"Survey year"</span>,</span>
-<span id="cb43-15"><a href="#cb43-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">state    =</span> <span class="st">"State"</span>,</span>
-<span id="cb43-16"><a href="#cb43-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">region   =</span> <span class="st">"Region"</span>,</span>
-<span id="cb43-17"><a href="#cb43-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">division =</span> <span class="st">"Division"</span></span>
-<span id="cb43-18"><a href="#cb43-18" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb43-19"><a href="#cb43-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb43-20"><a href="#cb43-20" aria-hidden="true" tabindex="-1"></a><span class="co"># Return the readable label if one exists, otherwise the variable name</span></span>
-<span id="cb43-21"><a href="#cb43-21" aria-hidden="true" tabindex="-1"></a>get_label <span class="ot">&lt;-</span> <span class="cf">function</span>(var) {</span>
-<span id="cb43-22"><a href="#cb43-22" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (var <span class="sc">%in%</span> <span class="fu">names</span>(var_labels)) var_labels[[var]] <span class="cf">else</span> var</span>
-<span id="cb43-23"><a href="#cb43-23" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb40"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Readable labels for plot titles and axes</span></span>
+<span id="cb40-2"><a href="#cb40-2" aria-hidden="true" tabindex="-1"></a>var_labels <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb40-3"><a href="#cb40-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">AGEP     =</span> <span class="st">"Age (years)"</span>,</span>
+<span id="cb40-4"><a href="#cb40-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">GASP     =</span> <span class="st">"Monthly gas cost ($)"</span>,</span>
+<span id="cb40-5"><a href="#cb40-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">GRPIP    =</span> <span class="st">"Gross rent as % of household income"</span>,</span>
+<span id="cb40-6"><a href="#cb40-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">JWAP     =</span> <span class="st">"Time of arrival at work"</span>,</span>
+<span id="cb40-7"><a href="#cb40-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">JWDP     =</span> <span class="st">"Time of departure for work"</span>,</span>
+<span id="cb40-8"><a href="#cb40-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">JWMNP    =</span> <span class="st">"Travel time to work (minutes)"</span>,</span>
+<span id="cb40-9"><a href="#cb40-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">FER      =</span> <span class="st">"Gave birth in past 12 months"</span>,</span>
+<span id="cb40-10"><a href="#cb40-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">HHL      =</span> <span class="st">"Household language"</span>,</span>
+<span id="cb40-11"><a href="#cb40-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">SCH      =</span> <span class="st">"School enrollment"</span>,</span>
+<span id="cb40-12"><a href="#cb40-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">SCHL     =</span> <span class="st">"Educational attainment"</span>,</span>
+<span id="cb40-13"><a href="#cb40-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">SEX      =</span> <span class="st">"Sex"</span>,</span>
+<span id="cb40-14"><a href="#cb40-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">year     =</span> <span class="st">"Survey year"</span>,</span>
+<span id="cb40-15"><a href="#cb40-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">state    =</span> <span class="st">"State"</span>,</span>
+<span id="cb40-16"><a href="#cb40-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">region   =</span> <span class="st">"Region"</span>,</span>
+<span id="cb40-17"><a href="#cb40-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">division =</span> <span class="st">"Division"</span></span>
+<span id="cb40-18"><a href="#cb40-18" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb40-19"><a href="#cb40-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-20"><a href="#cb40-20" aria-hidden="true" tabindex="-1"></a><span class="co"># Return the readable label if one exists, otherwise the variable name</span></span>
+<span id="cb40-21"><a href="#cb40-21" aria-hidden="true" tabindex="-1"></a>get_label <span class="ot">&lt;-</span> <span class="cf">function</span>(var) {</span>
+<span id="cb40-22"><a href="#cb40-22" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (var <span class="sc">%in%</span> <span class="fu">names</span>(var_labels)) var_labels[[var]] <span class="cf">else</span> var</span>
+<span id="cb40-23"><a href="#cb40-23" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>Now, let’s build our generic plot function</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a>plot.census <span class="ot">&lt;-</span> <span class="cf">function</span>(x, cat_var, num_var, <span class="at">colors =</span> <span class="cn">NULL</span>, ...) {</span>
-<span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Both variables are required</span></span>
-<span id="cb44-3"><a href="#cb44-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">missing</span>(cat_var) <span class="sc">||</span> <span class="fu">missing</span>(num_var)) {</span>
-<span id="cb44-4"><a href="#cb44-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"You must specify one categorical (cat_var) and one numeric (num_var) variable"</span>)</span>
-<span id="cb44-5"><a href="#cb44-5" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb44-6"><a href="#cb44-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(cat_var) <span class="sc">!=</span> <span class="dv">1</span> <span class="sc">||</span> <span class="fu">length</span>(num_var) <span class="sc">!=</span> <span class="dv">1</span>) {</span>
-<span id="cb44-7"><a href="#cb44-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"cat_var and num_var must each be a single variable name"</span>)</span>
-<span id="cb44-8"><a href="#cb44-8" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb44-9"><a href="#cb44-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb44-10"><a href="#cb44-10" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Validate the categorical variable</span></span>
-<span id="cb44-11"><a href="#cb44-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span>(cat_var <span class="sc">%in%</span> <span class="fu">names</span>(x)) <span class="sc">||</span> <span class="sc">!</span><span class="fu">is.factor</span>(x[[cat_var]])) {</span>
-<span id="cb44-12"><a href="#cb44-12" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(cat_var, <span class="st">" is not a categorical (factor) variable in the data"</span>)</span>
-<span id="cb44-13"><a href="#cb44-13" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb44-14"><a href="#cb44-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb44-15"><a href="#cb44-15" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Validate the numeric variable (time values are allowed)</span></span>
-<span id="cb44-16"><a href="#cb44-16" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span>(num_var <span class="sc">%in%</span> <span class="fu">names</span>(x)) <span class="sc">||</span></span>
-<span id="cb44-17"><a href="#cb44-17" aria-hidden="true" tabindex="-1"></a>      <span class="sc">!</span>(<span class="fu">is.numeric</span>(x[[num_var]]) <span class="sc">||</span> <span class="fu">inherits</span>(x[[num_var]], <span class="st">"hms"</span>))) {</span>
-<span id="cb44-18"><a href="#cb44-18" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(num_var, <span class="st">" is not a numeric variable in the data"</span>)</span>
-<span id="cb44-19"><a href="#cb44-19" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb44-20"><a href="#cb44-20" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (num_var <span class="sc">==</span> <span class="st">"PWGTP"</span>) {</span>
-<span id="cb44-21"><a href="#cb44-21" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"PWGTP is the weight variable; choose a different numeric variable"</span>)</span>
-<span id="cb44-22"><a href="#cb44-22" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb44-23"><a href="#cb44-23" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb44-24"><a href="#cb44-24" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Drop rows with missing values, drop unused factor levels</span></span>
-<span id="cb44-25"><a href="#cb44-25" aria-hidden="true" tabindex="-1"></a>  plot_data <span class="ot">&lt;-</span> x[<span class="sc">!</span><span class="fu">is.na</span>(x[[num_var]]) <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(x[[cat_var]]), ]</span>
-<span id="cb44-26"><a href="#cb44-26" aria-hidden="true" tabindex="-1"></a>  plot_data[[cat_var]] <span class="ot">&lt;-</span> <span class="fu">droplevels</span>(plot_data[[cat_var]])</span>
-<span id="cb44-27"><a href="#cb44-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb44-28"><a href="#cb44-28" aria-hidden="true" tabindex="-1"></a>  p <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(plot_data, <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">get</span>(cat_var), <span class="at">y =</span> <span class="fu">get</span>(num_var),</span>
-<span id="cb44-29"><a href="#cb44-29" aria-hidden="true" tabindex="-1"></a>                             <span class="at">weight =</span> PWGTP, <span class="at">fill =</span> <span class="fu">get</span>(cat_var))) <span class="sc">+</span></span>
-<span id="cb44-30"><a href="#cb44-30" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_boxplot</span>(...) <span class="sc">+</span>                                    <span class="co"># pass extra options through</span></span>
-<span id="cb44-31"><a href="#cb44-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">labs</span>(<span class="at">x =</span> <span class="fu">get_label</span>(cat_var),                           <span class="co"># readable labels</span></span>
-<span id="cb44-32"><a href="#cb44-32" aria-hidden="true" tabindex="-1"></a>         <span class="at">y =</span> <span class="fu">get_label</span>(num_var),</span>
-<span id="cb44-33"><a href="#cb44-33" aria-hidden="true" tabindex="-1"></a>         <span class="at">title =</span> <span class="fu">paste</span>(<span class="fu">get_label</span>(num_var), <span class="st">"by"</span>, <span class="fu">get_label</span>(cat_var))) <span class="sc">+</span></span>
-<span id="cb44-34"><a href="#cb44-34" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"none"</span>)                        <span class="co"># x-axis already labels the boxes</span></span>
-<span id="cb44-35"><a href="#cb44-35" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb44-36"><a href="#cb44-36" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Apply user-chosen colors, one per level of the categorical variable</span></span>
-<span id="cb44-37"><a href="#cb44-37" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(colors)) {</span>
-<span id="cb44-38"><a href="#cb44-38" aria-hidden="true" tabindex="-1"></a>    n_levels <span class="ot">&lt;-</span> <span class="fu">nlevels</span>(plot_data[[cat_var]])</span>
-<span id="cb44-39"><a href="#cb44-39" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="fu">length</span>(colors) <span class="sc">&lt;</span> n_levels) {</span>
-<span id="cb44-40"><a href="#cb44-40" aria-hidden="true" tabindex="-1"></a>      <span class="fu">stop</span>(<span class="st">"Need at least "</span>, n_levels, <span class="st">" colors for the levels of "</span>, cat_var)</span>
-<span id="cb44-41"><a href="#cb44-41" aria-hidden="true" tabindex="-1"></a>    }</span>
-<span id="cb44-42"><a href="#cb44-42" aria-hidden="true" tabindex="-1"></a>    p <span class="ot">&lt;-</span> p <span class="sc">+</span> <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> colors)</span>
-<span id="cb44-43"><a href="#cb44-43" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb44-44"><a href="#cb44-44" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb44-45"><a href="#cb44-45" aria-hidden="true" tabindex="-1"></a>  p</span>
-<span id="cb44-46"><a href="#cb44-46" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a>plot.census <span class="ot">&lt;-</span> <span class="cf">function</span>(x, cat_var, num_var, <span class="at">colors =</span> <span class="cn">NULL</span>, ...) {</span>
+<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Both variables are required</span></span>
+<span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">missing</span>(cat_var) <span class="sc">||</span> <span class="fu">missing</span>(num_var)) {</span>
+<span id="cb41-4"><a href="#cb41-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"You must specify one categorical (cat_var) and one numeric (num_var) variable"</span>)</span>
+<span id="cb41-5"><a href="#cb41-5" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb41-6"><a href="#cb41-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(cat_var) <span class="sc">!=</span> <span class="dv">1</span> <span class="sc">||</span> <span class="fu">length</span>(num_var) <span class="sc">!=</span> <span class="dv">1</span>) {</span>
+<span id="cb41-7"><a href="#cb41-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"cat_var and num_var must each be a single variable name"</span>)</span>
+<span id="cb41-8"><a href="#cb41-8" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb41-9"><a href="#cb41-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-10"><a href="#cb41-10" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Validate the categorical variable</span></span>
+<span id="cb41-11"><a href="#cb41-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span>(cat_var <span class="sc">%in%</span> <span class="fu">names</span>(x)) <span class="sc">||</span> <span class="sc">!</span><span class="fu">is.factor</span>(x[[cat_var]])) {</span>
+<span id="cb41-12"><a href="#cb41-12" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(cat_var, <span class="st">" is not a categorical (factor) variable in the data"</span>)</span>
+<span id="cb41-13"><a href="#cb41-13" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb41-14"><a href="#cb41-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-15"><a href="#cb41-15" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Validate the numeric variable (time values are allowed)</span></span>
+<span id="cb41-16"><a href="#cb41-16" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span>(num_var <span class="sc">%in%</span> <span class="fu">names</span>(x)) <span class="sc">||</span></span>
+<span id="cb41-17"><a href="#cb41-17" aria-hidden="true" tabindex="-1"></a>      <span class="sc">!</span>(<span class="fu">is.numeric</span>(x[[num_var]]) <span class="sc">||</span> <span class="fu">inherits</span>(x[[num_var]], <span class="st">"hms"</span>))) {</span>
+<span id="cb41-18"><a href="#cb41-18" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(num_var, <span class="st">" is not a numeric variable in the data"</span>)</span>
+<span id="cb41-19"><a href="#cb41-19" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb41-20"><a href="#cb41-20" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (num_var <span class="sc">==</span> <span class="st">"PWGTP"</span>) {</span>
+<span id="cb41-21"><a href="#cb41-21" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"PWGTP is the weight variable; choose a different numeric variable"</span>)</span>
+<span id="cb41-22"><a href="#cb41-22" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb41-23"><a href="#cb41-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-24"><a href="#cb41-24" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Drop rows with missing values, drop unused factor levels</span></span>
+<span id="cb41-25"><a href="#cb41-25" aria-hidden="true" tabindex="-1"></a>  plot_data <span class="ot">&lt;-</span> x[<span class="sc">!</span><span class="fu">is.na</span>(x[[num_var]]) <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(x[[cat_var]]), ]</span>
+<span id="cb41-26"><a href="#cb41-26" aria-hidden="true" tabindex="-1"></a>  plot_data[[cat_var]] <span class="ot">&lt;-</span> <span class="fu">droplevels</span>(plot_data[[cat_var]])</span>
+<span id="cb41-27"><a href="#cb41-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-28"><a href="#cb41-28" aria-hidden="true" tabindex="-1"></a>  p <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(plot_data, <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">get</span>(cat_var), <span class="at">y =</span> <span class="fu">get</span>(num_var),</span>
+<span id="cb41-29"><a href="#cb41-29" aria-hidden="true" tabindex="-1"></a>                             <span class="at">weight =</span> PWGTP, <span class="at">fill =</span> <span class="fu">get</span>(cat_var))) <span class="sc">+</span></span>
+<span id="cb41-30"><a href="#cb41-30" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_boxplot</span>(...) <span class="sc">+</span>                                    <span class="co"># pass extra options through</span></span>
+<span id="cb41-31"><a href="#cb41-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">labs</span>(<span class="at">x =</span> <span class="fu">get_label</span>(cat_var),                           <span class="co"># readable labels</span></span>
+<span id="cb41-32"><a href="#cb41-32" aria-hidden="true" tabindex="-1"></a>         <span class="at">y =</span> <span class="fu">get_label</span>(num_var),</span>
+<span id="cb41-33"><a href="#cb41-33" aria-hidden="true" tabindex="-1"></a>         <span class="at">title =</span> <span class="fu">paste</span>(<span class="fu">get_label</span>(num_var), <span class="st">"by"</span>, <span class="fu">get_label</span>(cat_var))) <span class="sc">+</span></span>
+<span id="cb41-34"><a href="#cb41-34" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"none"</span>)                        <span class="co"># x-axis already labels the boxes</span></span>
+<span id="cb41-35"><a href="#cb41-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-36"><a href="#cb41-36" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Apply user-chosen colors, one per level of the categorical variable</span></span>
+<span id="cb41-37"><a href="#cb41-37" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(colors)) {</span>
+<span id="cb41-38"><a href="#cb41-38" aria-hidden="true" tabindex="-1"></a>    n_levels <span class="ot">&lt;-</span> <span class="fu">nlevels</span>(plot_data[[cat_var]])</span>
+<span id="cb41-39"><a href="#cb41-39" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="fu">length</span>(colors) <span class="sc">&lt;</span> n_levels) {</span>
+<span id="cb41-40"><a href="#cb41-40" aria-hidden="true" tabindex="-1"></a>      <span class="fu">stop</span>(<span class="st">"Need at least "</span>, n_levels, <span class="st">" colors for the levels of "</span>, cat_var)</span>
+<span id="cb41-41"><a href="#cb41-41" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb41-42"><a href="#cb41-42" aria-hidden="true" tabindex="-1"></a>    p <span class="ot">&lt;-</span> p <span class="sc">+</span> <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> colors)</span>
+<span id="cb41-43"><a href="#cb41-43" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb41-44"><a href="#cb41-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-45"><a href="#cb41-45" aria-hidden="true" tabindex="-1"></a>  p</span>
+<span id="cb41-46"><a href="#cb41-46" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>Now, let’s test our plot function in several ways</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb45"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a><span class="co"># One categorical variable: year and numeric variable age</span></span>
-<span id="cb45-2"><a href="#cb45-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"year"</span>, <span class="at">num_var =</span> <span class="st">"AGEP"</span>, <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"gold"</span>, <span class="st">"forestgreen"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output-display">
-<div>
-<figure class="figure">
-<p><img src="ST558_Project1_files/figure-html/unnamed-chunk-19-1.png" class="img-fluid figure-img" width="672"></p>
-</figure>
-</div>
-</div>
-</div>
-<p>Here is a boxplot of age in years by survey years. We see very little change here which is expected as the survey years are only two years apart.</p>
-<div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Categorical variable sex and numeric variable commute time</span></span>
-<span id="cb46-2"><a href="#cb46-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"SEX"</span>, <span class="at">num_var =</span> <span class="st">"JWMNP"</span>, <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"skyblue"</span>, <span class="st">"magenta"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb42"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb42-1"><a href="#cb42-1" aria-hidden="true" tabindex="-1"></a><span class="co"># One categorical variable: year and numeric variable age</span></span>
+<span id="cb42-2"><a href="#cb42-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"year"</span>, <span class="at">num_var =</span> <span class="st">"AGEP"</span>, <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"gold"</span>, <span class="st">"forestgreen"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -838,10 +720,10 @@ $categorical$SEX
 </div>
 </div>
 </div>
-<p>Here is a plot of travel time to work (in minutes) by sex. Both boxplots are centered around 25 minutes, with women having a slightly larger IQR for commute times. There are also some clear outliers for commuters over and hour and a few ‘supercommuters’ over two hours</p>
+<p>Here is a boxplot of age in years by survey years. We see very little change here which is expected as the survey years are only two years apart.</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb47"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot of time of arrival and sex with outliers lightened</span></span>
-<span id="cb47-2"><a href="#cb47-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(test, <span class="at">cat_var =</span> <span class="st">"SEX"</span>, <span class="at">num_var =</span> <span class="st">"JWAP"</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.05</span>) <span class="co"># default colors</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Categorical variable sex and numeric variable commute time</span></span>
+<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"SEX"</span>, <span class="at">num_var =</span> <span class="st">"JWMNP"</span>, <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"skyblue"</span>, <span class="st">"magenta"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -850,11 +732,10 @@ $categorical$SEX
 </div>
 </div>
 </div>
-<p>These boxplots of time of arrival by sex have much more variance due to many workers who work night shifts or atypical hours, but the median of the data is still around 9AM, with females averaging slightly later arrival, from this data.</p>
-<p>Now, let’s try a multi-level example of age by educational attainment. Here we flip the coordinates for better readability since there are so many levels of education.</p>
+<p>Here is a plot of travel time to work (in minutes) by sex. Both boxplots are centered around 25 minutes, with women having a slightly larger IQR for commute times. There are also some clear outliers for commuters over and hour and a few ‘supercommuters’ over two hours</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(test, <span class="at">cat_var =</span> <span class="st">"SCHL"</span>, <span class="at">num_var =</span> <span class="st">"AGEP"</span>) <span class="sc">+</span></span>
-<span id="cb48-2"><a href="#cb48-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot of time of arrival and sex with outliers lightened</span></span>
+<span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(nc_2022_test, <span class="at">cat_var =</span> <span class="st">"SEX"</span>, <span class="at">num_var =</span> <span class="st">"JWAP"</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.05</span>) <span class="co"># default colors</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -863,20 +744,34 @@ $categorical$SEX
 </div>
 </div>
 </div>
+<p>It’s important to note that we don’t use multi here because we are dealing with time, so we used our test query from earlier for 2022 NC data.</p>
+<p>These boxplots of time of arrival by sex have much more variance due to many workers who work night shifts or atypical hours, but the median of the data is still around 9AM, with females averaging slightly later arrival, from this data.</p>
+<p>Now, let’s try a multi-level example of age by educational attainment using the same 2022 NC Data. Here we flip the coordinates for better readability since there are so many levels of education.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb45"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(nc_2022_test, <span class="at">cat_var =</span> <span class="st">"SCHL"</span>, <span class="at">num_var =</span> <span class="st">"AGEP"</span>) <span class="sc">+</span></span>
+<span id="cb45-2"><a href="#cb45-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="ST558_Project1_files/figure-html/unnamed-chunk-23-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
 <p>Here we see a clear trend of education level and age being positively correlated. There are a lot of outliers for older people who never received a formal education beyond a few grade levels.</p>
 <p>Finally, here are some error cases that shouldn’t work</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb49"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb49-1"><a href="#cb49-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"year"</span>)                                         <span class="co"># missing num_var</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"year"</span>)                                         <span class="co"># missing num_var</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-error">
 <pre><code>Error in plot.census(multi, cat_var = "year"): You must specify one categorical (cat_var) and one numeric (num_var) variable</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb51"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"AGEP"</span>, <span class="at">num_var =</span> <span class="st">"SEX"</span>)                        <span class="co"># variables swapped</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"AGEP"</span>, <span class="at">num_var =</span> <span class="st">"SEX"</span>)                        <span class="co"># variables swapped</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-error">
 <pre><code>Error in plot.census(multi, cat_var = "AGEP", num_var = "SEX"): AGEP is not a categorical (factor) variable in the data</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb53"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb53-1"><a href="#cb53-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"SCHL"</span>, <span class="at">num_var =</span> <span class="st">"AGEP"</span>, <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"blue"</span>, <span class="st">"red"</span>))  <span class="co"># too few colors</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb50"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"SCHL"</span>, <span class="at">num_var =</span> <span class="st">"AGEP"</span>, <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"blue"</span>, <span class="st">"red"</span>))  <span class="co"># too few colors</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-error">
-<pre><code>Error in plot.census(multi, cat_var = "SCHL", num_var = "AGEP", colors = c("blue", : Need at least 25 colors for the levels of SCHL</code></pre>
+<pre><code>Error in plot.census(multi, cat_var = "SCHL", num_var = "AGEP", colors = c("blue", : SCHL is not a categorical (factor) variable in the data</code></pre>
 </div>
 </div>
 </section>
@@ -884,14 +779,15 @@ $categorical$SEX
 <h2 class="anchored" data-anchor-id="investigation-changes-in-commuting-trends">Investigation: Changes in commuting trends</h2>
 <p>Continuing with some of the ideas above, let’s investigate how commuting times changed from 2021 to 2024 in the state with one of the longest average commute times, New York. 2021 was still at the peak of COVID, so we will see if commute times shifted after this as more and more people got back on the roads and in-person work environments.</p>
 <p>Lets start with a new pull of the data using our combined query function, selecting relevant numeric and categorical variables:</p>
+<p>(We can also include the cache: TRUE option to save the query results on renders, which saves time since this is a large amount of data)</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb55"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a>commute_ny <span class="ot">&lt;-</span> <span class="fu">query_pums_combined</span>(<span class="dv">2021</span><span class="sc">:</span><span class="dv">2024</span>,</span>
-<span id="cb55-2"><a href="#cb55-2" aria-hidden="true" tabindex="-1"></a>                                  <span class="at">num_vars =</span> <span class="fu">c</span>(<span class="st">"JWMNP"</span>, <span class="st">"JWAP"</span>, <span class="st">"AGEP"</span>),</span>
-<span id="cb55-3"><a href="#cb55-3" aria-hidden="true" tabindex="-1"></a>                                  <span class="at">cat_vars =</span> <span class="fu">c</span>(<span class="st">"SEX"</span>, <span class="st">"SCHL"</span>), <span class="at">geo_value =</span> <span class="dv">36</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb52"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a>commute_ny <span class="ot">&lt;-</span> <span class="fu">query_pums_combined</span>(<span class="dv">2021</span><span class="sc">:</span><span class="dv">2024</span>,</span>
+<span id="cb52-2"><a href="#cb52-2" aria-hidden="true" tabindex="-1"></a>                                  <span class="at">num_vars =</span> <span class="fu">c</span>(<span class="st">"JWMNP"</span>, <span class="st">"JWAP"</span>, <span class="st">"AGEP"</span>),</span>
+<span id="cb52-3"><a href="#cb52-3" aria-hidden="true" tabindex="-1"></a>                                  <span class="at">cat_vars =</span> <span class="fu">c</span>(<span class="st">"SEX"</span>, <span class="st">"SCHL"</span>), <span class="at">geo_value =</span> <span class="dv">36</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>Next, let’s display summaries by year for only commute times</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb56"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb56-1"><a href="#cb56-1" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(commute_ny, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="st">"year"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb53"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb53-1"><a href="#cb53-1" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(commute_ny, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="st">"year"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>$numeric
 $numeric$JWMNP
@@ -907,11 +803,11 @@ $categorical$year
 </div>
 <p>Our numeric summary function only gives us pooled statistics. The mean one-way commute time across all four years in New York was 32.6 minutes. The categorical variable is total number of observations. This is useful, but we’ll have to tweak this to get per year commute summaries</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb58"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a>commute_by_year <span class="ot">&lt;-</span> <span class="fu">sapply</span>(<span class="fu">levels</span>(commute_ny<span class="sc">$</span>year), <span class="cf">function</span>(yr) {</span>
-<span id="cb58-2"><a href="#cb58-2" aria-hidden="true" tabindex="-1"></a>  year_data <span class="ot">&lt;-</span> commute_ny[commute_ny<span class="sc">$</span>year <span class="sc">==</span> yr, ]</span>
-<span id="cb58-3"><a href="#cb58-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summary</span>(year_data, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="st">"year"</span>)<span class="sc">$</span>numeric<span class="sc">$</span>JWMNP</span>
-<span id="cb58-4"><a href="#cb58-4" aria-hidden="true" tabindex="-1"></a>})</span>
-<span id="cb58-5"><a href="#cb58-5" aria-hidden="true" tabindex="-1"></a>commute_by_year</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb55"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a>commute_by_year <span class="ot">&lt;-</span> <span class="fu">sapply</span>(<span class="fu">levels</span>(commute_ny<span class="sc">$</span>year), <span class="cf">function</span>(yr) {</span>
+<span id="cb55-2"><a href="#cb55-2" aria-hidden="true" tabindex="-1"></a>  year_data <span class="ot">&lt;-</span> commute_ny[commute_ny<span class="sc">$</span>year <span class="sc">==</span> yr, ]</span>
+<span id="cb55-3"><a href="#cb55-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summary</span>(year_data, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="st">"year"</span>)<span class="sc">$</span>numeric<span class="sc">$</span>JWMNP</span>
+<span id="cb55-4"><a href="#cb55-4" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb55-5"><a href="#cb55-5" aria-hidden="true" tabindex="-1"></a>commute_by_year</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>         2021     2022     2023     2024
 mean 31.39815 33.01311 32.83125 33.25635
@@ -921,19 +817,19 @@ sd   25.02750 26.02110 25.59259 26.17754</code></pre>
 <p>Here we can see mean and standard deviation commute times for the state by year. In 2021, the mean was the lowest, at 31.39 minutes. This mean increased to 33 minutes in 2022 and stayed around that length for the next two years.</p>
 <p>Now, let’s plot this commute length and arrival time by year</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb60"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb60-1"><a href="#cb60-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(commute_ny, <span class="at">cat_var =</span> <span class="st">"year"</span>, <span class="at">num_var =</span> <span class="st">"JWMNP"</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb57"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb57-1"><a href="#cb57-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(commute_ny, <span class="at">cat_var =</span> <span class="st">"year"</span>, <span class="at">num_var =</span> <span class="st">"JWMNP"</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="ST558_Project1_files/figure-html/unnamed-chunk-27-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="ST558_Project1_files/figure-html/unnamed-chunk-28-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb61"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb61-1"><a href="#cb61-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(commute_ny, <span class="at">cat_var =</span> <span class="st">"year"</span>, <span class="at">num_var =</span> <span class="st">"JWAP"</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.05</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb58"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(commute_ny, <span class="at">cat_var =</span> <span class="st">"year"</span>, <span class="at">num_var =</span> <span class="st">"JWAP"</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.05</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="ST558_Project1_files/figure-html/unnamed-chunk-27-2.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="ST558_Project1_files/figure-html/unnamed-chunk-28-2.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
@@ -942,12 +838,12 @@ sd   25.02750 26.02110 25.59259 26.17754</code></pre>
 <p>Also, the time of arrival at work appears to have little change over the years.</p>
 <p>Finally, lets compare New York to some other states: North Carolina and Texas in the year 2024 to see if there is a significant difference in commute times.</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb62"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb62-1"><a href="#cb62-1" aria-hidden="true" tabindex="-1"></a>commute_states <span class="ot">&lt;-</span> <span class="fu">query_pums</span>(<span class="dv">2024</span>,</span>
-<span id="cb62-2"><a href="#cb62-2" aria-hidden="true" tabindex="-1"></a>                             <span class="at">num_vars =</span> <span class="fu">c</span>(<span class="st">"JWMNP"</span>, <span class="st">"AGEP"</span>),</span>
-<span id="cb62-3"><a href="#cb62-3" aria-hidden="true" tabindex="-1"></a>                             <span class="at">cat_vars =</span> <span class="st">"SEX"</span>,</span>
-<span id="cb62-4"><a href="#cb62-4" aria-hidden="true" tabindex="-1"></a>                             <span class="at">geo_value =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">37</span>, <span class="dv">48</span>))   <span class="co"># NY, NC, TX</span></span>
-<span id="cb62-5"><a href="#cb62-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb62-6"><a href="#cb62-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(commute_states, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="st">"state"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb59"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb59-1"><a href="#cb59-1" aria-hidden="true" tabindex="-1"></a>commute_states <span class="ot">&lt;-</span> <span class="fu">query_pums</span>(<span class="dv">2024</span>,</span>
+<span id="cb59-2"><a href="#cb59-2" aria-hidden="true" tabindex="-1"></a>                             <span class="at">num_vars =</span> <span class="fu">c</span>(<span class="st">"JWMNP"</span>, <span class="st">"AGEP"</span>),</span>
+<span id="cb59-3"><a href="#cb59-3" aria-hidden="true" tabindex="-1"></a>                             <span class="at">cat_vars =</span> <span class="st">"SEX"</span>,</span>
+<span id="cb59-4"><a href="#cb59-4" aria-hidden="true" tabindex="-1"></a>                             <span class="at">geo_value =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">37</span>, <span class="dv">48</span>))   <span class="co"># NY, NC, TX</span></span>
+<span id="cb59-5"><a href="#cb59-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb59-6"><a href="#cb59-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(commute_states, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="st">"state"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>$numeric
 $numeric$JWMNP
@@ -957,49 +853,15 @@ $numeric$JWMNP
 
 $categorical
 $categorical$state
-             Alabama/AL               Alaska/AK              Arizona/AZ 
-                      0                       0                       0 
-            Arkansas/AR           California/CA             Colorado/CO 
-                      0                       0                       0 
-         Connecticut/CT             Delaware/DE District of Columbia/DC 
-                      0                       0                       0 
-             Florida/FL              Georgia/GA               Hawaii/HI 
-                      0                       0                       0 
-               Idaho/ID             Illinois/IL              Indiana/IN 
-                      0                       0                       0 
-                Iowa/IA               Kansas/KS             Kentucky/KY 
-                      0                       0                       0 
-           Louisiana/LA                Maine/ME             Maryland/MD 
-                      0                       0                       0 
-       Massachusetts/MA             Michigan/MI            Minnesota/MN 
-                      0                       0                       0 
-         Mississippi/MS             Missouri/MO              Montana/MT 
-                      0                       0                       0 
-            Nebraska/NE               Nevada/NV        New Hampshire/NH 
-                      0                       0                       0 
-          New Jersey/NJ           New Mexico/NM             New York/NY 
-                      0                       0                19867248 
-      North Carolina/NC         North Dakota/ND                 Ohio/OH 
-               11046024                       0                       0 
-            Oklahoma/OK               Oregon/OR         Pennsylvania/PA 
-                      0                       0                       0 
-        Rhode Island/RI       South Carolina/SC         South Dakota/SD 
-                      0                       0                       0 
-           Tennessee/TN                Texas/TX                 Utah/UT 
-                      0                31290831                       0 
-             Vermont/VT             Virginia/VA           Washington/WA 
-                      0                       0                       0 
-       West Virginia/WV            Wisconsin/WI              Wyoming/WY 
-                      0                       0                       0 
-         Puerto Rico/PR 
-                      0 </code></pre>
+      New York/NY North Carolina/NC          Texas/TX 
+         19867248          11046024          31290831 </code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb64"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb64-1"><a href="#cb64-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(commute_states, <span class="at">cat_var =</span> <span class="st">"state"</span>, <span class="at">num_var =</span> <span class="st">"JWMNP"</span>,</span>
-<span id="cb64-2"><a href="#cb64-2" aria-hidden="true" tabindex="-1"></a>     <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"steelblue"</span>, <span class="st">"darkorange"</span>, <span class="st">"darkred"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb61"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb61-1"><a href="#cb61-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(commute_states, <span class="at">cat_var =</span> <span class="st">"state"</span>, <span class="at">num_var =</span> <span class="st">"JWMNP"</span>,</span>
+<span id="cb61-2"><a href="#cb61-2" aria-hidden="true" tabindex="-1"></a>     <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"steelblue"</span>, <span class="st">"darkorange"</span>, <span class="st">"darkred"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="ST558_Project1_files/figure-html/unnamed-chunk-28-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="ST558_Project1_files/figure-html/unnamed-chunk-29-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>

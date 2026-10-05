@@ -7,17 +7,17 @@ author: "Ryan Mersereau"
 
 # Intro
 
-Our goal for this project is to write functions that will manipulate and process data sets from a census API. We'll create *generic* functions to automatically summarize and plot certain returned data.
+The American Community Survey's Public Use Microdata Sample (PUMS) contains anonymous survey responses for individual people. Each row comes with a weight, PWGTP, that tells us how many people in the population it represents. In this project we'll write functions to pull PUMS data from the Census API for 2021–2024 and clean it into a tibble. Then we'll write custom summary() and plot() methods that account for those weights. Finally, we'll apply these tools to look at how commute times in New York changed over this time span.
 
 ## Data
 
 We are going to query the Public Use Microdata Sample (PUMS) Census API. Information about this is available here: [Information about PUMS API](https://www.census.gov/data/developers/data-sets/census-microdata-api.html)
 
-# Part 1: Data Processing:
+# Part 1: Data Processing
 
 ## Parsing Variable Values
 
-First, we'll start by downloading and parsing the JSON files with variable descriptions for the years 2021-2024.
+First, we'll start by loading our required libraries. We need `httr` and `jsonlite` for the API, `tidyverse` for tibbles and `lubridate`, and `hms` for time values.
 
 ```{r}
 #| warning: FALSE
@@ -28,9 +28,9 @@ library(tidyverse)
 library(hms)
 ```
 
-We only want to parse certain variables, so we'll specify them below.
+Now, we can move on to downloading and parsing the JSON files with variable descriptions for the years 2021-2024.
 
-We want to write a function to `GET()` the URL, parse the JSON, and pull out a list of variables with their values. We'll obtain one list for each year
+We only want to parse certain variables, so we'll specify them below. We need to write a function to `GET()` the URL, parse the JSON, and pull out a list of variables with their values. We'll obtain one list for each year.
 
 ```{r}
 vars <- c("AGEP", "GASP", "GRPIP", "JWAP", "JWDP", "JWMNP", "PWGTP",
@@ -132,21 +132,7 @@ make_factor <- function(x, labels) {
 }
 ```
 
-Now, using our helper functions, we'll wrap this into a function that also parses the data by writing a function to query the API that allows the user to change the following items:
-
-- Year of survey (2024 as default)
-  - Check a valid value given
-- Specify numeric variables to be returned (AGEP and PWGTP as default)
-  - Turn variables into numeric values or time (use `lubridate`)
-- Specify the categorical variables to be returned (SEX as default)
-  - Must include at least one categorical variable
-  - Turn variables into factors with appropriate levels
-- Specify geography level: Region, Division, or State
-- Specify the specific region, division, or state to subset data on
-  - Specify a default level if the user doesn't
-  - Allowable values are in the `.rds` file
-  - Allow input all option that would return all values for that geography
-- Return an error if user specifies a variable not included in the above two lists
+Now, using our helper functions, we'll wrap this into Our main function, query_pums(). This function lets the user choose the survey year, numeric and categorical variables, and a geography. We check every input and return a clear error if something isn't allowed. If no geography value is given, we default to North Carolina (or the South region / South Atlantic division), and "all" returns every value at that level. Puerto Rico is excluded, and PWGTP is always returned since we need it for weighting.
 
 ```{r}
 query_pums <- function(year = 2024,
@@ -244,7 +230,7 @@ query_pums <- function(year = 2024,
 }  
 ```
 
-Now lets test our function:
+Now lets test our function with default values:
 
 ```{r}
 # Default values, year = 2024, State = NC
@@ -258,8 +244,9 @@ nc_2022_test <- query_pums(2022,
                         cat_vars = c("SEX", "SCHL"))
 str(nc_2022_test)
 ```
+The numeric variables are now real numbers, JWAP is stored as a time of day (NA for people without a commute), and SEX and SCHL are factors with readable labels instead of codes.
 
-These queries shouldn't work:
+These calls are supposed to fail. We use error: TRUE so the document still renders and we can see each error message.
 
 ```{r}
 #| error: TRUE
@@ -317,19 +304,15 @@ A year outside 2021-2024 should still return an error
 query_pums_combined(c(2021, 2020))
 ```
 
-# Part 2: Writing a Generic Function for Summarizing
+# Part 2: Generic Functions for Summarizing and Plotting
 
-The rows in our tibbles don't generally correspond to a single person! The `PWGTP` variable actually represents the number of (people) observations there should be for a particular row.
+The rows in our tibbles don't generally correspond to a single person! The `PWGTP` variable actually represents the number of (people) observations there should be for a particular row. We could create a new tibble with each row replicated `PWGTP` times, but this would create a very large tibble in some cases.
 
-We could create a new tibble with each row replicated `PWGTP` times, but this would create a very large tibble in some cases.
-
-Instead, we'll use **Generic Functions**
-
-Since we have added a `census` class to our tibble, we can write our own custom `summary()` function!
+Instead, we'll use **Generic Functions**. Since we have added a `census` class to our tibble, we can write our own custom `summary()` function!
 
 ## Numeric Summaries
 
-For the `census` summary method, let's write a function that produces means and standard deviations for our numeric variable(s) and counts for our categorical variable(s)
+For the `census` summary method, we'll write a function that produces means and standard deviations for our numeric variable(s) and counts for our categorical variable(s).
 
 - The function will take three arguments: the census tibble (maybe having multiple years), the numeric variable(s) to summarize, and the categorical variable(s) to summarize.
 
@@ -383,12 +366,15 @@ summary.census <- function(object, num_vars = NULL, cat_vars = NULL, ...) {
 }
 ```
 
+In this function we are using weighted statistics Since a row with PWGTP = 50 stands for 50 people. Copying each row 50 times would make huge tibbles. Instead, because our data has the census class, R will automatically send summary() and plot() to our own versions of those functions, which handle the weights for us.
+
 Now, lets test our function in several ways
 
 ```{r}
 # Default values (all numeric except PWGTP)
 summary(multi)
 ```
+The weighted mean age in NC is about 40, and the average one-way commute is about 25 minutes. The category counts are sums of PWGTP, so they estimate numbers of people, not rows. There are about 10.7 million people in 2022 and 11.0 million in 2024, which matches North Carolinas actual population.
 
 ```{r}
 # One numeric, two categorical
@@ -400,7 +386,7 @@ Bad example: Trying to pass time variables
 ```{r}
 #| error: TRUE
 
-summary(multi, num_vars = "JWAP")
+summary(nc_2022_test, num_vars = "JWAP")
 ```
 
 ## Graphical Summaries
@@ -500,7 +486,7 @@ Here is a boxplot of age in years by survey years. We see very little change her
 plot(multi, cat_var = "SEX", num_var = "JWMNP", colors = c("skyblue", "magenta"))
 ```
 
-Here is a plot of travel time to work (in minutes) by sex. Both boxplots are centered around 25 minutes, with women having a slightly larger IQR for commute times. There are also some clear outliers for commuters over and hour and a few 'supercommuters' over two hours
+Here is a plot of travel time to work (in minutes) by sex. Both box plots are centered around 25 minutes, with women having a slightly larger IQR for commute times. There are also some clear outliers for commuters over an hour and a few 'super commuters' over two hours.
 
 ```{r}
 # Plot of time of arrival and sex with outliers lightened
@@ -508,7 +494,7 @@ plot(nc_2022_test, cat_var = "SEX", num_var = "JWAP", outlier.alpha = 0.05) # de
 ```
 It's important to note that we don't use multi here because we are dealing with time, so we used our test query from earlier for 2022 NC data.
 
-These boxplots of time of arrival by sex have much more variance due to many workers who work night shifts or atypical hours, but the median of the data is still around 9AM, with females averaging slightly later arrival, from this data.
+These box plots of time of arrival by sex have much more variance due to many workers who work night shifts or atypical hours. The median of the data is still around 9AM, with females having a slightly later median arrival time, from this data.
 
 Now, let's try a multi-level example of age by educational attainment using the same 2022 NC Data. Here we flip the coordinates for better readability since there are so many levels of education.
 
@@ -517,29 +503,27 @@ plot(nc_2022_test, cat_var = "SCHL", num_var = "AGEP") +
   coord_flip()
 ```
 
-Here we see a clear trend of education level and age being positively correlated. There are a lot of outliers for older people who never received a formal education beyond a few grade levels.
+Here we see a clear trend of education level and age, with the lowest levels being mostly young kids still in school. There are a lot of outliers for older people who never received a formal education beyond a few grade levels.
 
 Finally, here are some error cases that shouldn't work
 
 ```{r}
 #| error: true
 
-plot(multi, cat_var = "year")                                         # missing num_var
-plot(multi, cat_var = "AGEP", num_var = "SEX")                        # variables swapped
-plot(multi, cat_var = "SCHL", num_var = "AGEP", colors = c("blue", "red"))  # too few colors
+plot(nc_test_2022, cat_var = "year")                                         # missing num_var
+plot(nc_test_2022, cat_var = "AGEP", num_var = "SEX")                        # variables swapped
+plot(nc_test_2022, cat_var = "SCHL", num_var = "AGEP", colors = c("blue", "red"))  # too few colors
 ```
 
-## Investigation: Changes in commuting trends
+# Part 3: Investigating Commute Times
 
-Continuing with some of the ideas above, let's investigate how commuting times changed from 2021 to 2024 in the state with one of the longest average commute times, New York. 2021 was still at the peak of COVID, so we will see if commute times shifted after this as more and more people got back on the roads and in-person work environments.
+Continuing with some of the ideas above, let's investigate how commuting times changed from 2021 to 2024 in the state with one of the longest average commute times, New York. In 2021, many people were still working from home. Did commutes get longer as people returned to the office?
 
 Lets start with a new pull of the data using our combined query function, selecting relevant numeric and categorical variables:
 
-(We can also include the cache: TRUE option to save the query results on renders, which saves time since this is a large amount of data)
-
 ```{r}
 #| cache: TRUE
-commute_ny <- query_pums_combined(2021:2024,
+commute_ny <- query_pums_combined(2021:2024, # Here we include the cache: TRUE option to save the query results on renders, which saves time since this is a large amount of data
                                   num_vars = c("JWMNP", "JWAP", "AGEP"),
                                   cat_vars = c("SEX", "SCHL"), geo_value = 36)
 ```
@@ -551,14 +535,14 @@ summary(commute_ny, num_vars = "JWMNP", cat_vars = "year")
 
 ```
 
-Our numeric summary function only gives us pooled statistics. The mean one-way commute time across all four years in New York was 32.6 minutes. The categorical variable is total number of observations. This is useful, but we'll have to tweak this to get per year commute summaries
+Our numeric summary function only gives us pooled statistics. The mean one-way commute time across all four years in New York was 32.6 minutes. The categorical variable is a population estimate. This is useful, but we'll have to tweak this to get per year commute summaries
 
 ```{r}
 commute_by_year <- sapply(levels(commute_ny$year), function(yr) {
   year_data <- commute_ny[commute_ny$year == yr, ]
   summary(year_data, num_vars = "JWMNP", cat_vars = "year")$numeric$JWMNP
 })
-commute_by_year
+round(commute_by_year, 1)
 ```
 
 Here we can see mean and standard deviation commute times for the state by year. In 2021, the mean was the lowest, at 31.39 minutes. This mean increased to 33 minutes in 2022 and stayed around that length for the next two years.
@@ -574,7 +558,7 @@ This boxplot supports our numerical summary findings of the average commute time
 
 Also, the time of arrival at work appears to have little change over the years.
 
-Finally, lets compare New York to some other states: North Carolina and Texas in the year 2024 to see if there is a significant difference in commute times.
+Finally, lets compare New York to some other states: North Carolina and Texas in the year 2024 to see if there is a  difference in commute times.
 
 ```{r}
 commute_states <- query_pums(2024,
@@ -587,4 +571,16 @@ plot(commute_states, cat_var = "state", num_var = "JWMNP",
      colors = c("steelblue", "darkorange", "darkred"))
 ```
 
-Here we can see New York having a much higher mean travel time and Q3 than NC and Texas do for the year 2024.
+Here we can see New York having a much higher median travel time and Q3 than NC and Texas do for the year 2024. Lets also display some summary statistics to show this
+
+```{r}
+sapply(levels(commute_states$state), function(st) {
+  state_data <- commute_states[commute_states$state == st, ]
+  summary(state_data, num_vars = "JWMNP", cat_vars = "state")$numeric$JWMNP
+})
+```
+
+
+## Conclusion
+
+In this project we built functions to query the PUMS API, convert raw codes into numbers, times, and labeled factors, and combine multiple years of data. Our summary() and plot() methods use the survey weights so results describe the population rather than raw rows. Using them, we found that New York's average commute rose about two minutes after 2021 and has held near 33 minutes since. New York commutes are also longer than those in North Carolina or Texas. These are descriptive comparisons only, but give us an idea on computing formal tests in the future.

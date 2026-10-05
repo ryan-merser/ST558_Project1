@@ -147,25 +147,25 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <section id="intro" class="level1">
 <h1>Intro</h1>
-<p>Our goal for this project is to write functions that will manipulate and process data sets from a census API. We’ll create <em>generic</em> functions to automatically summarize and plot certain returned data.</p>
+<p>The American Community Survey’s Public Use Microdata Sample (PUMS) contains anonymous survey responses for individual people. Each row comes with a weight, PWGTP, that tells us how many people in the population it represents. In this project we’ll write functions to pull PUMS data from the Census API for 2021–2024 and clean it into a tibble. Then we’ll write custom summary() and plot() methods that account for those weights. Finally, we’ll apply these tools to look at how commute times in New York changed over this time span.</p>
 <section id="data" class="level2">
 <h2 class="anchored" data-anchor-id="data">Data</h2>
 <p>We are going to query the Public Use Microdata Sample (PUMS) Census API. Information about this is available here: <a href="https://www.census.gov/data/developers/data-sets/census-microdata-api.html">Information about PUMS API</a></p>
 </section>
 </section>
 <section id="part-1-data-processing" class="level1">
-<h1>Part 1: Data Processing:</h1>
+<h1>Part 1: Data Processing</h1>
 <section id="parsing-variable-values" class="level2">
 <h2 class="anchored" data-anchor-id="parsing-variable-values">Parsing Variable Values</h2>
-<p>First, we’ll start by downloading and parsing the JSON files with variable descriptions for the years 2021-2024.</p>
+<p>First, we’ll start by loading our required libraries. We need <code>httr</code> and <code>jsonlite</code> for the API, <code>tidyverse</code> for tibbles and <code>lubridate</code>, and <code>hms</code> for time values.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(httr)</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(jsonlite)</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(hms)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<p>We only want to parse certain variables, so we’ll specify them below.</p>
-<p>We want to write a function to <code>GET()</code> the URL, parse the JSON, and pull out a list of variables with their values. We’ll obtain one list for each year</p>
+<p>Now, we can move on to downloading and parsing the JSON files with variable descriptions for the years 2021-2024.</p>
+<p>We only want to parse certain variables, so we’ll specify them below. We need to write a function to <code>GET()</code> the URL, parse the JSON, and pull out a list of variables with their values. We’ll obtain one list for each year.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>vars <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"AGEP"</span>, <span class="st">"GASP"</span>, <span class="st">"GRPIP"</span>, <span class="st">"JWAP"</span>, <span class="st">"JWDP"</span>, <span class="st">"JWMNP"</span>, <span class="st">"PWGTP"</span>,</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>               <span class="st">"FER"</span>, <span class="st">"HHL"</span>, <span class="st">"SCH"</span>, <span class="st">"SCHL"</span>, <span class="st">"SEX"</span>, <span class="st">"REGION"</span>, <span class="st">"DIVISION"</span>)</span>
@@ -274,30 +274,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">factor</span>(<span class="fu">normalize_code</span>(x), <span class="at">levels =</span> <span class="fu">normalize_code</span>(<span class="fu">names</span>(labels)), <span class="at">labels =</span> labels)</span>
 <span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<p>Now, using our helper functions, we’ll wrap this into a function that also parses the data by writing a function to query the API that allows the user to change the following items:</p>
-<ul>
-<li>Year of survey (2024 as default)
-<ul>
-<li>Check a valid value given</li>
-</ul></li>
-<li>Specify numeric variables to be returned (AGEP and PWGTP as default)
-<ul>
-<li>Turn variables into numeric values or time (use <code>lubridate</code>)</li>
-</ul></li>
-<li>Specify the categorical variables to be returned (SEX as default)
-<ul>
-<li>Must include at least one categorical variable</li>
-<li>Turn variables into factors with appropriate levels</li>
-</ul></li>
-<li>Specify geography level: Region, Division, or State</li>
-<li>Specify the specific region, division, or state to subset data on
-<ul>
-<li>Specify a default level if the user doesn’t</li>
-<li>Allowable values are in the <code>.rds</code> file</li>
-<li>Allow input all option that would return all values for that geography</li>
-</ul></li>
-<li>Return an error if user specifies a variable not included in the above two lists</li>
-</ul>
+<p>Now, using our helper functions, we’ll wrap this into Our main function, query_pums(). This function lets the user choose the survey year, numeric and categorical variables, and a geography. We check every input and return a clear error if something isn’t allowed. If no geography value is given, we default to North Carolina (or the South region / South Atlantic division), and “all” returns every value at that level. Puerto Rico is excluded, and PWGTP is always returned since we need it for weighting.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>query_pums <span class="ot">&lt;-</span> <span class="cf">function</span>(<span class="at">year =</span> <span class="dv">2024</span>,</span>
 <span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>                       <span class="at">num_vars =</span> <span class="fu">c</span>(<span class="st">"AGEP"</span>, <span class="st">"PWGTP"</span>),</span>
@@ -393,7 +370,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb9-92"><a href="#cb9-92" aria-hidden="true" tabindex="-1"></a>  pums_tbl</span>
 <span id="cb9-93"><a href="#cb9-93" aria-hidden="true" tabindex="-1"></a>}  </span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<p>Now lets test our function:</p>
+<p>Now lets test our function with default values:</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Default values, year = 2024, State = NC</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">query_pums</span>()                                         </span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -432,7 +409,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
  $ state: Factor w/ 1 level "North Carolina/NC": 1 1 1 1 1 1 1 1 1 1 ...</code></pre>
 </div>
 </div>
-<p>These queries shouldn’t work:</p>
+<p>The numeric variables are now real numbers, JWAP is stored as a time of day (NA for people without a commute), and SEX and SCHL are factors with readable labels instead of codes.</p>
+<p>These calls are supposed to fail. We use error: TRUE so the document still renders and we can see each error message.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">query_pums</span>(<span class="dv">2020</span>)                            <span class="co"># bad year</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-error">
@@ -514,15 +492,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </section>
 </section>
-<section id="part-2-writing-a-generic-function-for-summarizing" class="level1">
-<h1>Part 2: Writing a Generic Function for Summarizing</h1>
-<p>The rows in our tibbles don’t generally correspond to a single person! The <code>PWGTP</code> variable actually represents the number of (people) observations there should be for a particular row.</p>
-<p>We could create a new tibble with each row replicated <code>PWGTP</code> times, but this would create a very large tibble in some cases.</p>
-<p>Instead, we’ll use <strong>Generic Functions</strong></p>
-<p>Since we have added a <code>census</code> class to our tibble, we can write our own custom <code>summary()</code> function!</p>
+<section id="part-2-generic-functions-for-summarizing-and-plotting" class="level1">
+<h1>Part 2: Generic Functions for Summarizing and Plotting</h1>
+<p>The rows in our tibbles don’t generally correspond to a single person! The <code>PWGTP</code> variable actually represents the number of (people) observations there should be for a particular row. We could create a new tibble with each row replicated <code>PWGTP</code> times, but this would create a very large tibble in some cases.</p>
+<p>Instead, we’ll use <strong>Generic Functions</strong>. Since we have added a <code>census</code> class to our tibble, we can write our own custom <code>summary()</code> function!</p>
 <section id="numeric-summaries" class="level2">
 <h2 class="anchored" data-anchor-id="numeric-summaries">Numeric Summaries</h2>
-<p>For the <code>census</code> summary method, let’s write a function that produces means and standard deviations for our numeric variable(s) and counts for our categorical variable(s)</p>
+<p>For the <code>census</code> summary method, we’ll write a function that produces means and standard deviations for our numeric variable(s) and counts for our categorical variable(s).</p>
 <ul>
 <li><p>The function will take three arguments: the census tibble (maybe having multiple years), the numeric variable(s) to summarize, and the categorical variable(s) to summarize.</p></li>
 <li><p>By default, it will summarize all numeric variables (other than <code>PWGTP</code>) and all categorical variables in the tibble. However, the user will be able to specify the variables they’d like to summarize.</p></li>
@@ -573,6 +549,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb33-42"><a href="#cb33-42" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">numeric =</span> num_summaries, <span class="at">categorical =</span> cat_summaries)</span>
 <span id="cb33-43"><a href="#cb33-43" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
+<p>In this function we are using weighted statistics Since a row with PWGTP = 50 stands for 50 people. Copying each row 50 times would make huge tibbles. Instead, because our data has the census class, R will automatically send summary() and plot() to our own versions of those functions, which handle the weights for us.</p>
 <p>Now, lets test our function in several ways</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Default values (all numeric except PWGTP)</span></span>
@@ -602,6 +579,7 @@ $categorical$year
 10698973 11046024 </code></pre>
 </div>
 </div>
+<p>The weighted mean age in NC is about 40, and the average one-way commute is about 25 minutes. The category counts are sums of PWGTP, so they estimate numbers of people, not rows. There are about 10.7 million people in 2022 and 11.0 million in 2024, which matches North Carolinas actual population.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="co"># One numeric, two categorical</span></span>
 <span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(multi, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="fu">c</span>(<span class="st">"year"</span>, <span class="st">"SEX"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -624,9 +602,9 @@ $categorical$SEX
 </div>
 <p>Bad example: Trying to pass time variables</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(multi, <span class="at">num_vars =</span> <span class="st">"JWAP"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(nc_2022_test, <span class="at">num_vars =</span> <span class="st">"JWAP"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-error">
-<pre><code>Error in summary.census(multi, num_vars = "JWAP"): Variable(s) not in the data: JWAP</code></pre>
+<pre><code>Error in summary.census(nc_2022_test, num_vars = "JWAP"): num_vars must be numeric, non-time variables</code></pre>
 </div>
 </div>
 </section>
@@ -732,7 +710,7 @@ $categorical$SEX
 </div>
 </div>
 </div>
-<p>Here is a plot of travel time to work (in minutes) by sex. Both boxplots are centered around 25 minutes, with women having a slightly larger IQR for commute times. There are also some clear outliers for commuters over and hour and a few ‘supercommuters’ over two hours</p>
+<p>Here is a plot of travel time to work (in minutes) by sex. Both box plots are centered around 25 minutes, with women having a slightly larger IQR for commute times. There are also some clear outliers for commuters over an hour and a few ‘super commuters’ over two hours.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot of time of arrival and sex with outliers lightened</span></span>
 <span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(nc_2022_test, <span class="at">cat_var =</span> <span class="st">"SEX"</span>, <span class="at">num_var =</span> <span class="st">"JWAP"</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.05</span>) <span class="co"># default colors</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -745,7 +723,7 @@ $categorical$SEX
 </div>
 </div>
 <p>It’s important to note that we don’t use multi here because we are dealing with time, so we used our test query from earlier for 2022 NC data.</p>
-<p>These boxplots of time of arrival by sex have much more variance due to many workers who work night shifts or atypical hours, but the median of the data is still around 9AM, with females averaging slightly later arrival, from this data.</p>
+<p>These box plots of time of arrival by sex have much more variance due to many workers who work night shifts or atypical hours. The median of the data is still around 9AM, with females having a slightly later median arrival time, from this data.</p>
 <p>Now, let’s try a multi-level example of age by educational attainment using the same 2022 NC Data. Here we flip the coordinates for better readability since there are so many levels of education.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb45"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(nc_2022_test, <span class="at">cat_var =</span> <span class="st">"SCHL"</span>, <span class="at">num_var =</span> <span class="st">"AGEP"</span>) <span class="sc">+</span></span>
@@ -758,30 +736,30 @@ $categorical$SEX
 </div>
 </div>
 </div>
-<p>Here we see a clear trend of education level and age being positively correlated. There are a lot of outliers for older people who never received a formal education beyond a few grade levels.</p>
+<p>Here we see a clear trend of education level and age, with the lowest levels being mostly young kids still in school. There are a lot of outliers for older people who never received a formal education beyond a few grade levels.</p>
 <p>Finally, here are some error cases that shouldn’t work</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"year"</span>)                                         <span class="co"># missing num_var</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(nc_test_2022, <span class="at">cat_var =</span> <span class="st">"year"</span>)                                         <span class="co"># missing num_var</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-error">
-<pre><code>Error in plot.census(multi, cat_var = "year"): You must specify one categorical (cat_var) and one numeric (num_var) variable</code></pre>
+<pre><code>Error: object 'nc_test_2022' not found</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"AGEP"</span>, <span class="at">num_var =</span> <span class="st">"SEX"</span>)                        <span class="co"># variables swapped</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(nc_test_2022, <span class="at">cat_var =</span> <span class="st">"AGEP"</span>, <span class="at">num_var =</span> <span class="st">"SEX"</span>)                        <span class="co"># variables swapped</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-error">
-<pre><code>Error in plot.census(multi, cat_var = "AGEP", num_var = "SEX"): AGEP is not a categorical (factor) variable in the data</code></pre>
+<pre><code>Error: object 'nc_test_2022' not found</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb50"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(multi, <span class="at">cat_var =</span> <span class="st">"SCHL"</span>, <span class="at">num_var =</span> <span class="st">"AGEP"</span>, <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"blue"</span>, <span class="st">"red"</span>))  <span class="co"># too few colors</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb50"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(nc_test_2022, <span class="at">cat_var =</span> <span class="st">"SCHL"</span>, <span class="at">num_var =</span> <span class="st">"AGEP"</span>, <span class="at">colors =</span> <span class="fu">c</span>(<span class="st">"blue"</span>, <span class="st">"red"</span>))  <span class="co"># too few colors</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-error">
-<pre><code>Error in plot.census(multi, cat_var = "SCHL", num_var = "AGEP", colors = c("blue", : SCHL is not a categorical (factor) variable in the data</code></pre>
+<pre><code>Error: object 'nc_test_2022' not found</code></pre>
 </div>
 </div>
 </section>
-<section id="investigation-changes-in-commuting-trends" class="level2">
-<h2 class="anchored" data-anchor-id="investigation-changes-in-commuting-trends">Investigation: Changes in commuting trends</h2>
-<p>Continuing with some of the ideas above, let’s investigate how commuting times changed from 2021 to 2024 in the state with one of the longest average commute times, New York. 2021 was still at the peak of COVID, so we will see if commute times shifted after this as more and more people got back on the roads and in-person work environments.</p>
+</section>
+<section id="part-3-investigating-commute-times" class="level1">
+<h1>Part 3: Investigating Commute Times</h1>
+<p>Continuing with some of the ideas above, let’s investigate how commuting times changed from 2021 to 2024 in the state with one of the longest average commute times, New York. In 2021, many people were still working from home. Did commutes get longer as people returned to the office?</p>
 <p>Lets start with a new pull of the data using our combined query function, selecting relevant numeric and categorical variables:</p>
-<p>(We can also include the cache: TRUE option to save the query results on renders, which saves time since this is a large amount of data)</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb52"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a>commute_ny <span class="ot">&lt;-</span> <span class="fu">query_pums_combined</span>(<span class="dv">2021</span><span class="sc">:</span><span class="dv">2024</span>,</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb52"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a>commute_ny <span class="ot">&lt;-</span> <span class="fu">query_pums_combined</span>(<span class="dv">2021</span><span class="sc">:</span><span class="dv">2024</span>, <span class="co"># Here we include the cache: TRUE option to save the query results on renders, which saves time since this is a large amount of data</span></span>
 <span id="cb52-2"><a href="#cb52-2" aria-hidden="true" tabindex="-1"></a>                                  <span class="at">num_vars =</span> <span class="fu">c</span>(<span class="st">"JWMNP"</span>, <span class="st">"JWAP"</span>, <span class="st">"AGEP"</span>),</span>
 <span id="cb52-3"><a href="#cb52-3" aria-hidden="true" tabindex="-1"></a>                                  <span class="at">cat_vars =</span> <span class="fu">c</span>(<span class="st">"SEX"</span>, <span class="st">"SCHL"</span>), <span class="at">geo_value =</span> <span class="dv">36</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
@@ -801,17 +779,17 @@ $categorical$year
 19835913 19677151 19571216 19867248 </code></pre>
 </div>
 </div>
-<p>Our numeric summary function only gives us pooled statistics. The mean one-way commute time across all four years in New York was 32.6 minutes. The categorical variable is total number of observations. This is useful, but we’ll have to tweak this to get per year commute summaries</p>
+<p>Our numeric summary function only gives us pooled statistics. The mean one-way commute time across all four years in New York was 32.6 minutes. The categorical variable is a population estimate. This is useful, but we’ll have to tweak this to get per year commute summaries</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb55"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a>commute_by_year <span class="ot">&lt;-</span> <span class="fu">sapply</span>(<span class="fu">levels</span>(commute_ny<span class="sc">$</span>year), <span class="cf">function</span>(yr) {</span>
 <span id="cb55-2"><a href="#cb55-2" aria-hidden="true" tabindex="-1"></a>  year_data <span class="ot">&lt;-</span> commute_ny[commute_ny<span class="sc">$</span>year <span class="sc">==</span> yr, ]</span>
 <span id="cb55-3"><a href="#cb55-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summary</span>(year_data, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="st">"year"</span>)<span class="sc">$</span>numeric<span class="sc">$</span>JWMNP</span>
 <span id="cb55-4"><a href="#cb55-4" aria-hidden="true" tabindex="-1"></a>})</span>
-<span id="cb55-5"><a href="#cb55-5" aria-hidden="true" tabindex="-1"></a>commute_by_year</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb55-5"><a href="#cb55-5" aria-hidden="true" tabindex="-1"></a><span class="fu">round</span>(commute_by_year, <span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>         2021     2022     2023     2024
-mean 31.39815 33.01311 32.83125 33.25635
-sd   25.02750 26.02110 25.59259 26.17754</code></pre>
+<pre><code>     2021 2022 2023 2024
+mean 31.4   33 32.8 33.3
+sd   25.0   26 25.6 26.2</code></pre>
 </div>
 </div>
 <p>Here we can see mean and standard deviation commute times for the state by year. In 2021, the mean was the lowest, at 31.39 minutes. This mean increased to 33 minutes in 2022 and stayed around that length for the next two years.</p>
@@ -836,7 +814,7 @@ sd   25.02750 26.02110 25.59259 26.17754</code></pre>
 </div>
 <p>This boxplot supports our numerical summary findings of the average commute time increasing after the year 2021, although the IQR doesn’t appear to move much. It’s important to note that the center of the boxplot is the median, not mean, so median commute times gradually rose in 2022, and then substantially rose in 2023. The mean commute time for this data is higher than the median because the commute times are right-skewed.</p>
 <p>Also, the time of arrival at work appears to have little change over the years.</p>
-<p>Finally, lets compare New York to some other states: North Carolina and Texas in the year 2024 to see if there is a significant difference in commute times.</p>
+<p>Finally, lets compare New York to some other states: North Carolina and Texas in the year 2024 to see if there is a difference in commute times.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb59"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb59-1"><a href="#cb59-1" aria-hidden="true" tabindex="-1"></a>commute_states <span class="ot">&lt;-</span> <span class="fu">query_pums</span>(<span class="dv">2024</span>,</span>
 <span id="cb59-2"><a href="#cb59-2" aria-hidden="true" tabindex="-1"></a>                             <span class="at">num_vars =</span> <span class="fu">c</span>(<span class="st">"JWMNP"</span>, <span class="st">"AGEP"</span>),</span>
@@ -866,7 +844,21 @@ $categorical$state
 </div>
 </div>
 </div>
-<p>Here we can see New York having a much higher mean travel time and Q3 than NC and Texas do for the year 2024.</p>
+<p>Here we can see New York having a much higher median travel time and Q3 than NC and Texas do for the year 2024. Lets also display some summary statistics to show this</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb62"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb62-1"><a href="#cb62-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sapply</span>(<span class="fu">levels</span>(commute_states<span class="sc">$</span>state), <span class="cf">function</span>(st) {</span>
+<span id="cb62-2"><a href="#cb62-2" aria-hidden="true" tabindex="-1"></a>  state_data <span class="ot">&lt;-</span> commute_states[commute_states<span class="sc">$</span>state <span class="sc">==</span> st, ]</span>
+<span id="cb62-3"><a href="#cb62-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summary</span>(state_data, <span class="at">num_vars =</span> <span class="st">"JWMNP"</span>, <span class="at">cat_vars =</span> <span class="st">"state"</span>)<span class="sc">$</span>numeric<span class="sc">$</span>JWMNP</span>
+<span id="cb62-4"><a href="#cb62-4" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>     New York/NY North Carolina/NC Texas/TX
+mean    33.25635          25.76062 27.54693
+sd      26.17754          21.32595 22.77528</code></pre>
+</div>
+</div>
+<section id="conclusion" class="level2">
+<h2 class="anchored" data-anchor-id="conclusion">Conclusion</h2>
+<p>In this project we built functions to query the PUMS API, convert raw codes into numbers, times, and labeled factors, and combine multiple years of data. Our summary() and plot() methods use the survey weights so results describe the population rather than raw rows. Using them, we found that New York’s average commute rose about two minutes after 2021 and has held near 33 minutes since. New York commutes are also longer than those in North Carolina or Texas. These are descriptive comparisons only, but give us an idea on computing formal tests in the future.</p>
 
 
 </section>

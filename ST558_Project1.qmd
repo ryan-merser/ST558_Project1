@@ -20,6 +20,7 @@ We are going to query the Public Use Microdata Sample (PUMS) Census API. Informa
 First, we'll start by downloading and parsing the JSON files with variable descriptions for the years 2021-2024.
 
 ```{r}
+#libraries
 #| warning: FALSE
 #| message: FALSE
 library(httr)
@@ -274,7 +275,6 @@ query_pums(geo_level = c("State", "Region"))# multiple levels
 query_pums(geo_value = 99)                  # not a valid state code
 ```
 
-
 ## Combining Years
 
 Finally, lets write a function that allows the user to specify multiple years of survey data (along with all the other options). This function will call a single year function as many times as needed and then combine the data into one final tibble with a year variable included.
@@ -302,17 +302,164 @@ query_pums_combined <- function(years = 2024, ...) { # ... passes everything els
 }
 ```
 
-Testing
+Testing a combined years query
 
 ```{r}
 multi <- query_pums_combined(c(2022, 2024),
                     num_vars = c("AGEP", "JWMNP"),
                     cat_vars = c("SEX", "SCHL"))
 str(multi)
-class(multi)          # should start with "census"
+class(multi)          
 table(multi$year)     # rows from each year
 
 query_pums_combined(2023)      # single year still works
 # query_pums_combined(c(2021, 2020))  # should error
 ```
 
+# Part 2: Writing a Generic Function for Summarizing
+
+The rows in our tibbles don't generally correspond to a single person! The `PWGTP` variable actually represents the number of (people) observations there should be for a particular row.
+
+We could create a new tibble with each row replicated `PWGTP` times, but this would create a very large tibble in some cases.
+
+Instead, we'll use **Generic Functions**
+
+Since we have added a `census` class to our tibble, we can write our own custom `summary()` function!
+
+## Numeric Summaries
+
+For the `census` summary method, let's write a function that produces means and standard deviations for our numeric variable(s) and counts for our categorical variable(s)
+
+- The function will take three arguments: the census tibble (maybe having multiple years), the numeric variable(s) to summarize, and the categorical variable(s) to summarize.
+
+- By default, it will summarize all numeric variables (other than `PWGTP`) and all categorical variables in the tibble. However, the user will be able to specify the variables they'd like to summarize.
+
+- All values will be returned as a named list
+
+```{r}
+summary.census <- function(object, num_vars = NULL, cat_vars = NULL, ...) {
+  weight <- object$PWGTP
+
+  # Columns that are numeric but not time values
+  is_plain_numeric <- function(col) is.numeric(col) && !inherits(col, "hms")
+
+  # Defaults: all non-time numeric variables (except PWGTP) and all factors
+  if (is.null(num_vars)) {
+    num_vars <- names(object)[sapply(object, is_plain_numeric)]
+    num_vars <- setdiff(num_vars, "PWGTP")
+  }
+  if (is.null(cat_vars)) {
+    cat_vars <- names(object)[sapply(object, is.factor)]
+  }
+
+  # Validate user input
+  missing_vars <- setdiff(c(num_vars, cat_vars), names(object))
+  if (length(missing_vars) > 0) {
+    stop("Variable(s) not in the data: ", paste(missing_vars, collapse = ", "))
+  }
+  if (!all(sapply(object[num_vars], is_plain_numeric))) {
+    stop("num_vars must be numeric, non-time variables")
+  }
+  if (!all(sapply(object[cat_vars], is.factor))) {
+    stop("cat_vars must be categorical (factor) variables")
+  }
+
+  # Weighted mean and SD for each numeric variable, dropping NAs
+  num_summaries <- lapply(num_vars, function(v) {
+    keep <- !is.na(object[[v]])
+    x <- object[[v]][keep]
+    w <- weight[keep]
+    mean_x <- sum(x * w) / sum(w)
+    sd_x <- sqrt(sum(x^2 * w) / sum(w) - mean_x^2)
+    c(mean = mean_x, sd = sd_x)
+  })
+  names(num_summaries) <- num_vars
+
+  # Weighted counts for each categorical variable
+  cat_summaries <- lapply(cat_vars, function(v) {
+    tapply(weight, object[[v]], sum, default = 0)
+  })
+  names(cat_summaries) <- cat_vars
+
+  list(numeric = num_summaries, categorical = cat_summaries)
+}
+```
+
+Now, lets test our function in several ways
+
+```{r}
+# Default values
+summary(multi)
+```
+```{r}
+# One numeric variable, AGEP
+summary(multi, num_vars = "AGEP")
+```
+```{r}
+# One numeric, two categorical
+summary(multi, num_vars = "JWMNP", cat_vars = c("year", "SEX"))
+```
+```{r}
+# Bad example - trying to pass time variables
+#| error: TRUE
+#| message: FALSE
+#| eval: FALSE
+# summary(multi, num_vars = "JWAP")
+```
+
+## Graphical Summaries
+
+Similar to this process, let's create a generic `plot()` function for a `census` class tibble. This will require the user to specify one categorical variable (can include year) and one numeric variable for plotting. The plot should create a boxplot of the numeric variable at the levels of the categorical variable.
+
+```{r}
+plot.census <- function(x, cat_var, num_var, ...) {
+  # Both variables are required
+  if (missing(cat_var) || missing(num_var)) {
+    stop("You must specify one categorical (cat_var) and one numeric (num_var) variable")
+  }
+  if (length(cat_var) != 1 || length(num_var) != 1) {
+    stop("cat_var and num_var must each be a single variable name")
+  }
+
+  # Validate the categorical variable
+  if (!(cat_var %in% names(x)) || !is.factor(x[[cat_var]])) {
+    stop(cat_var, " is not a categorical (factor) variable in the data")
+  }
+
+  # Validate the numeric variable (time values are allowed)
+  if (!(num_var %in% names(x)) ||
+      !(is.numeric(x[[num_var]]) || inherits(x[[num_var]], "hms"))) {
+    stop(num_var, " is not a numeric variable in the data")
+  }
+  if (num_var == "PWGTP") {
+    stop("PWGTP is the weight variable; choose a different numeric variable")
+  }
+
+  # Drop rows with missing values so ggplot doesn't warn about them
+  plot_data <- x[!is.na(x[[num_var]]) & !is.na(x[[cat_var]]), ]
+
+  ggplot(plot_data, aes(x = get(cat_var), y = get(num_var), weight = PWGTP)) +
+    geom_boxplot() +
+    labs(x = cat_var,
+         y = num_var,
+         title = paste("Plot of", num_var, "by", cat_var))
+}
+```
+
+Now, let's test our plot function in several ways
+
+```{r}
+# One categorical variable: year and numeric variable age
+plot(multi, cat_var = "year", num_var = "AGEP")
+```
+```{r}
+# Categorical variable sex and numeric variable commute time
+plot(multi, cat_var = "SEX", num_var = "JWMNP")    # commute time by sex
+```
+```{r}
+# Plot of time of arrival and sex
+plot(test, cat_var = "SEX", num_var = "JWAP") 
+```
+
+
+## Investigation
